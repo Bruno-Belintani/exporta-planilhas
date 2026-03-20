@@ -1,0 +1,482 @@
+
+select * from mig_amaral_processos_calil_cury
+
+--area
+select * from p_areas where are_flg_atv = 1 order by are_dsc --22
+
+--papel
+select * from p_tp_papeis where  tpa_fky_are_ide = 22 and tpa_flg_atv  = 1 order by tpa_dsc 
+
+--ação
+select * from p_acoes where aca_fky_are_ide = 22 and aca_flg_atv  = 1 order by aca_dsc 
+
+--Foro
+select * from p_foro where for_fky_are_ide = 22 and for_flg_atv = 1 order by for_dsc 
+
+--****** AREA *******--
+
+select * from mig_amaral_processos_calil_cury
+
+alter table mig_amaral_processos_calil_cury add column mig_are_ide numeric
+
+--verifica os estados cadastrados no LM
+select * from p_areas, mig_amaral_processos_calil_cury 
+where upper(to_ascii(trim(are_dsc))) = upper(to_ascii(trim(natureza_acao)))
+and are_flg_atv = 1 
+
+
+--inclui o com_ide na mig_est_ide
+update mig_amaral_processos_calil_cury set mig_are_ide = are_ide 
+from p_areas
+where upper(to_ascii(trim(are_dsc))) = upper(to_ascii(trim(natureza_acao)))
+and are_flg_atv = 1
+
+--******** TIPO AÇÃO **********--
+
+select * from mig_amaral_processos_calil_cury
+
+select * from p_acoes limit 10
+
+alter table mig_amaral_processos_calil_cury add column mig_aca_ide numeric
+
+select distinct tipo_acao  from mig_amaral_processos_calil_cury
+
+--verifica os tipos de ação cadastrados no LM
+select * from p_acoes, mig_amaral_processos_calil_cury 
+where upper(to_ascii(trim(aca_dsc))) = upper(to_ascii(trim(tipo_acao)))
+and aca_flg_atv = 1 
+and aca_fky_are_ide = mig_are_ide
+
+
+--inclui o tipo de ação não cadastrada
+INSERT INTO public.p_acoes
+		(aca_dsc, aca_fky_are_ide, aca_flg_atv, aca_qem, aca_qdo, aca_qdo_inc, aca_qem_inc)
+select   distinct tipo_acao, mig_are_ide, 1, 'LMBB', now(), now(), 'LMBB'
+from mig_amaral_processos_calil_cury
+
+--inclui o mig_aca_ide
+update mig_amaral_processos_calil_cury set mig_aca_ide = aca_ide 
+from p_acoes
+where upper(to_ascii(trim(aca_dsc))) = upper(to_ascii(trim(tipo_acao)))
+and aca_flg_atv = 1 
+and aca_fky_are_ide = mig_are_ide
+
+
+--******** Estado ********--
+
+select * from c_estados where est_flg_atv = 1 order by est_dsc 
+
+alter table mig_amaral_processos_calil_cury add column mig_est_ide numeric
+
+--verifica os estados cadastrados no LM
+select * from c_estados, mig_amaral_processos_calil_cury 
+where upper(to_ascii(trim(est_dsc))) = upper(to_ascii(trim(estado)))
+and est_flg_atv = 1 
+
+--inclui o com_ide na mig_est_ide
+update mig_amaral_processos_calil_cury set mig_est_ide = est_ide 
+from c_estados
+where upper(to_ascii(trim(est_dsc))) = upper(to_ascii(trim(estado)))
+and est_flg_atv = 1
+
+select distinct estado from mig_amaral_processos_calil_cury where mig_est_ide is null
+
+--****** COMARCA ******--
+
+select * from p_comarca where com_flg_atv = 1 order by com_dsc 
+
+
+--inclui a coluna mig_com_ide
+alter table mig_amaral_processos_calil_cury add column mig_com_ide numeric
+
+--varifica comarca cadastrada no LM
+select * from p_comarca, mig_amaral_processos_calil_cury 
+where upper(to_ascii(trim(com_dsc))) = upper(to_ascii(trim(comarca)))
+and com_flg_atv = 1 
+
+--inclui o com_ide na mig_com_ide
+update mig_amaral_processos_calil_cury set mig_com_ide = com_ide 
+from p_comarca
+where upper(to_ascii(trim(com_dsc))) = upper(to_ascii(trim(comarca)))
+and com_flg_atv = 1
+
+--verifica comarca não cadastrada no LM
+select distinct comarca from mig_amaral_processos_calil_cury where mig_com_ide is null
+
+--inclui as comarcas não cadastradas no LM 
+INSERT INTO public.p_comarca
+(com_dsc, com_flg_atv, com_qem, com_qdo, com_fky_est_ide, com_qdo_inc, com_qem_inc)
+select distinct comarca, 1, '#LMBB', now(), mig_est_ide, now(), '#LMBB'
+from mig_amaral_processos_calil_cury
+where mig_com_ide is null
+and not exists (select 1 from p_comarca where upper(to_ascii(trim(com_dsc))) = upper(to_ascii(trim(comarca)))and com_flg_atv = 1)
+
+update mig_amaral_processos_calil_cury set mig_com_ide = com_ide 
+from p_comarca
+where upper(to_ascii(trim(com_dsc))) = upper(to_ascii(trim(comarca)))
+and com_flg_atv = 1
+and mig_com_ide is null
+
+--VARA
+
+alter table mig_amaral_processos_calil_cury add column mig_var_ide numeric
+
+select * from p_vara, mig_amaral_processos_calil_cury 
+where upper(to_ascii(trim(var_dsc))) = upper(to_ascii(trim(vara)))
+and var_flg_atv = 1 
+
+--inclui o var_ide na var_com_ide
+update mig_amaral_processos_calil_cury set mig_var_ide = var_ide 
+from p_vara
+where upper(to_ascii(trim(var_dsc))) = upper(to_ascii(trim(vara)))
+and var_flg_atv = 1
+
+select distinct vara from mig_amaral_processos_calil_cury where mig_var_ide is null
+
+INSERT INTO public.p_vara
+(var_dsc, var_flg_atv, var_qem, var_qdo, var_qdo_inc, var_qem_inc)
+select distinct vara, 1, '#LMBB', now(), now(), '#LMBB'
+from mig_amaral_processos_calil_cury
+where mig_var_ide is null 
+and not exists (select 1 from p_vara 
+				where upper(to_ascii(trim(var_dsc))) = upper(to_ascii(trim(vara)))
+				and var_flg_atv = 1)
+
+--inclui oo novos var_ide na var_com_ide
+update mig_amaral_processos_calil_cury set mig_var_ide = var_ide 
+from p_vara
+where upper(to_ascii(trim(var_dsc))) = upper(to_ascii(trim(vara)))
+and var_flg_atv = 1
+and mig_var_ide is null
+
+select distinct vara from mig_amaral_processos_calil_cury where mig_var_ide is null
+
+
+--****** Perspectiva ********--
+
+select * from mig_amaral_processos_calil_cury
+
+select * from p_perspectivas where per_flg_atv = 1
+
+alter table mig_amaral_processos_calil_cury add column mig_per_ide numeric
+
+select * from p_perspectivas, mig_amaral_processos_calil_cury 
+where upper(to_ascii(trim(per_dsc))) = upper(to_ascii(trim(possibilidade_perda)))
+and per_flg_atv = 1 
+
+--inclui o per_ide na mig_per_ide
+update mig_amaral_processos_calil_cury set mig_per_ide = per_ide 
+from p_perspectivas
+where upper(to_ascii(trim(per_dsc))) = upper(to_ascii(trim(possibilidade_perda)))
+and per_flg_atv = 1
+
+select distinct probabilidade_perda from mig_amaral_processos_calil_cury where mig_per_ide is null
+
+
+--******* FASE ********--
+
+alter table mig_amaral_processos_calil_cury add column mig_fas_ide numeric
+
+select distinct fase from mig_amaral_processos_calil_cury;
+
+
+select * from p_tp_fase ptf 
+
+--verifica fase
+select * from p_tp_fase, mig_amaral_processos_calil_cury 
+where upper(to_ascii(trim(fas_dsc))) = upper(to_ascii(trim(fase)))
+and fas_flg_atv = 1 
+
+--incluifase não cadastrada
+INSERT INTO public.p_tp_fase
+			(fas_dsc, fas_flg_atv, fas_qem, fas_qdo, fas_qdo_inc, fas_qem_inc)
+select 		distinct fase, 1, 'LMBB', now(), now(), 'LMBB'
+from mig_amaral_processos_calil_cury
+
+
+--inclui o per_ide na mig_per_ide
+update mig_amaral_processos_calil_cury set mig_fas_ide = fas_ide 
+from p_tp_fase
+where upper(to_ascii(trim(fas_dsc))) = upper(to_ascii(trim(fase)))
+and fas_flg_atv = 1 
+
+
+--************* PAPEL PARTES ********************
+
+select * from mig_amaral_processos_calil_cury;
+
+
+alter table mig_amaral_processos_calil_cury add column mig_tpa_ide_pri numeric
+
+--papel
+select * from p_tp_papeis where  tpa_flg_atv  = 1 order by tpa_dsc 
+
+--************* PAPEL PRINCIPAL *****************
+
+--verifica os papeis principais cadastrados no LM
+select tpa_dsc, papel_parte_principal, 
+* from p_tp_papeis, mig_amaral_processos_calil_cury 
+where upper(to_ascii(trim(tpa_dsc))) = upper(to_ascii(trim(papel_parte_principal)))
+and tpa_flg_atv = 1
+and tpa_fky_are_ide = mig_are_ide
+
+
+--inclui o tpa_ide na mig_tpa_ide_pri
+update mig_amaral_processos_calil_cury set mig_tpa_ide_pri = tpa_ide
+from p_tp_papeis
+where upper(to_ascii(trim(tpa_dsc))) = upper(to_ascii(trim(papel_parte_principal)))
+and tpa_flg_atv = 1
+and tpa_fky_are_ide = mig_are_ide
+
+select distinct pap_parte_principal from mig_amaral_processos_calil_cury where mig_tpa_ide_pri is null
+
+
+--************ PAPEL CONTRÁRIO *************
+
+alter table mig_amaral_processos_calil_cury add column mig_tpa_ide_cnt numeric
+
+select * from mig_amaral_processos_calil_cury
+
+--verifica os papeis cadastrados no LM
+select tpa_dsc, papel_parte_contraria, * from p_tp_papeis, mig_amaral_processos_calil_cury 
+where upper(to_ascii(trim(tpa_dsc))) = upper(to_ascii(trim(papel_parte_contraria)))
+and tpa_flg_atv = 1
+and tpa_fky_are_ide = mig_are_ide
+
+
+--inclui o tpa_ide na mig_tpa_ide_pri
+update mig_amaral_processos_calil_cury set mig_tpa_ide_cnt = tpa_ide
+from p_tp_papeis
+where upper(to_ascii(trim(tpa_dsc))) = upper(to_ascii(trim(papel_parte_contraria)))
+and tpa_flg_atv = 1
+and tpa_fky_are_ide = mig_are_ide
+
+select distinct pap_parte_contraria from mig_amaral_processos_calil_cury where mig_tpa_ide_cnt is null
+
+
+
+--***********************************--
+--************** PROCESSOS **********--
+--***********************************--
+
+select * from mig_amaral_processos_calil_cury
+
+alter table mig_amaral_processos_calil_cury add column mig_pro_ide date
+
+select * from p_processos, mig_amaral_processos_calil_cury
+where pro_fky_emp_ide = codigo_cliente::numeric
+and pro_nro_lmp = f_puro(processo)
+and pro_flg_atv = 1
+
+begin
+rollback
+	
+--inclui os processo
+
+INSERT INTO public.p_processos
+(pro_fky_are_ide, pro_nro, pro_dta_ent, pro_dta_dis, pro_fky_emp_ide, pro_fky_ctr_ide, pro_par_pri, pro_fky_tpa_ide_pri, pro_par_cnt, pro_fky_tpa_ide_cnt, pro_flg_sta, pro_fky_aca_ide, 
+pro_fky_sit_ide, pro_fky_for_ide, pro_fky_com_ide, pro_fky_var_ide, pro_obj, pro_flg_atv, pro_qem, pro_qdo, pro_qdo_inc, pro_qem_inc, pro_nro_lmp, pro_fky_pel_ide, pro_ide_ext)
+
+select mig_are_ide, left(processo, 30), now(), to_date(data_distribuicao,'mm/dd/yyyy'), codigo_cliente::numeric, contrato::numeric, parte_principal, mig_tpa_ide_pri, parte_contraria, mig_tpa_ide_cnt, 'A', mig_aca_ide,
+1, null, mig_com_ide, mig_var_ide, resumo_acao, 1, '#LMBB', now(), now(), '#LMBB', f_puro(left(processo, 30)), 1, ide_ext::numeric
+from mig_amaral_processos_calil_cury
+where not exists (select 1 from p_processos
+					where pro_fky_emp_ide = codigo_cliente::numeric
+					and pro_nro_lmp = f_puro(processo)
+					and pro_flg_atv = 1)
+commit
+
+
+--INCLUI A COLUNA MIG_PRO_IDE
+alter table mig_amaral_processos_calil_cury add column mig_pro_ide numeric
+
+select pro_nro, processo, 
+* from p_processos, mig_amaral_processos_calil_cury
+where pro_nro_lmp = f_puro(processo)
+and pro_qem = '#LMBB'
+and pro_flg_atv = 1
+
+update mig_amaral_processos_calil_cury set mig_pro_ide = pro_ide
+from p_processos
+where pro_nro_lmp = f_puro(processo)
+and pro_qem = '#LMBB'
+and pro_flg_atv = 1
+
+
+--****** OUTRAS PARTES *********
+
+select * from p_processos_x_partes 
+
+select * from p_tp_papeis where tpa_fky_are_ide = 22 and tpa_flg_atv = 1 order by tpa_dsc 
+
+--outras_partes_reu_1
+INSERT INTO public.p_processos_x_partes
+										(ppa_fky_pro_ide, ppa_par_nom, ppa_fky_tpa_ide, ppa_flg_atv, ppa_qem, ppa_qdo, ppa_qem_inc, ppa_qdo_inc, pro_fky_fas_ide, pro_fky_per_ide, )
+select 									mig_pro_ide, trim(outras_partes_reu_1), 874, 1, '#LM_BB', now(), '#LM_BB', now(), mig_fas_ide, mig_per_ide, 1
+from mig_amaral_processos_calil_cury
+where  coalesce(outras_partes_reu_1, '') <> ''
+and outras_partes_reu_1 <> '.'
+and not exists (select * from p_processos_x_partes 
+				where upper(to_ascii(trim(ppa_par_nom))) = upper(to_ascii(trim(outras_partes_reu_1))) 
+				and ppa_fky_pro_ide = mig_pro_ide 
+				and ppa_fky_tpa_ide = 874
+				and ppa_flg_atv = 1)
+
+				
+--******* DESDOBRAMENTO **********
+
+
+INSERT INTO public.p_desdobramentos
+									(ddb_fky_pro_ide, ddb_nro, ddb_fky_tre_ide, ddb_fky_com_ide,  ddb_flg_atv, ddb_qem, ddb_qdo, ddb_dta_ent, 
+									ddb_dta_dis, ddb_par_pri, ddb_fky_tpa_ide_pri, ddb_par_cnt, ddb_fky_tpa_ide_cnt, ddb_flg_sta, ddb_fky_aca_ide, ddb_fky_var_ide, 
+									ddb_qdo_inc, ddb_qem_inc)
+									
+select 								mig_pro_ide, numero_desdobramento, 0,  mig_com_ide, 1, '#LM_BB', now(), now(),
+									to_date(distribuicao,'mm-dd-yyyy'), reu, 874, autor, 821, 'A', 112, mig_var_ide,
+									now(), '#LM_BB'
+
+from mig_amaral_processos_calil_cury
+where coalesce(numero_desdobramento, '') <> ''
+
+--CODIGO EXTERNO
+
+update p_processos set pro_cod_ext = codigo
+from mig_amaral_processos_calil_cury
+where pro_ide = mig_pro_ide 
+and pro_qem = '#LM_BB'
+and pro_flg_atv = 1
+
+--**** FASE VALOR ****--
+ 
+select * from mig_amaral_processos_calil_cury
+
+alter table mig_amaral_processos_calil_cury add column mig_pvf_ide numeric
+
+select * from p_processos_valores_fases ppvf 
+
+select * from p_processos_valores_fases, mig_amaral_processos_calil_cury 
+where upper(to_ascii(trim(pvf_dsc))) = upper(to_ascii(trim(fase)))
+and pvf_flg_atv = 1 
+
+
+INSERT INTO public.p_processos_valores_fases
+(pvf_ide, pvf_dsc, pvf_ord, pvf_flg_atv, pvf_qem, pvf_qdo, pvf_qem_inc, pvf_qdo_inc, pvf_flg_lgm)
+VALUES(1, '[Indefinida]', 1, 1, 'LGM', '2021-09-22 20:23:01.708', NULL, '2021-09-22 20:23:01.708', 1);
+
+
+--inclui o fas_ide na mig_fas_ide
+update mig_amaral_processos_calil_cury set mig_pvf_ide = pvf_ide 
+from p_processos_valores_fases
+where upper(to_ascii(trim(pvf_dsc))) = upper(to_ascii(trim(fase)))
+and pvf_flg_atv = 1
+
+--**************************--
+--******* VALORES **********--
+--**************************--
+
+select * from mig_amaral_processos_calil_cury
+
+
+--*** VALOR CAUSA ***-
+
+select valor_causa, replace(valor_causa, '$', '') from mig_amaral_processos_calil_cury
+update mig_amaral_processos_calil_cury set valor_causa =  replace(valor_causa, '$', '')
+
+select valor_causa, replace(valor_causa, ',', '') from mig_amaral_processos_calil_cury
+update mig_amaral_processos_calil_cury set valor_causa =  replace(valor_causa, ',', '')
+
+
+select valor_causa, 
+* from mig_amaral_processos_calil_cury
+
+select * from c_tp_valor_eventos where vev_flg_atv = 1 order by vev_dsc 
+select * from p_tp_valores
+
+--inclui valor causa
+INSERT INTO public.p_processos_x_valores
+										(pva_fky_pro_ide, pva_fky_tva_ide, pva_fky_moe_sgl, pva_vlr, pva_dta_ref, pva_fky_pvf_ide, pva_fky_per_ide, pva_fky_vev_ide, pva_flg_atv, 
+										pva_qdo, pva_qdo_inc, pva_qem, pva_qem_inc)
+										
+select									mig_pro_ide, null, 'R$', valor_causa::numeric, now(), 1, 4, 3, 1,
+										now(), now(), '#LMBB', '#LMBB'           
+from mig_amaral_processos_calil_cury
+
+				
+--*** Valor de Contingência ***--
+
+select valor_contingencia, replace(valor_contingencia, '$', '') from mig_amaral_processos_calil_cury
+update mig_amaral_processos_calil_cury set valor_contingencia =  replace(valor_contingencia, '$', '')
+
+select valor_contingencia, replace(valor_contingencia, ',', '') from mig_amaral_processos_calil_cury
+update mig_amaral_processos_calil_cury set valor_contingencia =  replace(valor_contingencia, ',', '')
+
+--inclui Valor de Contingência
+INSERT INTO public.p_processos_x_valores
+										(pva_fky_pro_ide, pva_fky_tva_ide, pva_fky_moe_sgl, pva_vlr, pva_dta_ref, pva_fky_pvf_ide, pva_fky_per_ide, pva_fky_vev_ide, pva_flg_atv, 
+										pva_qdo, pva_qdo_inc, pva_qem, pva_qem_inc)
+										
+select									mig_pro_ide, null, 'R$', valor_contingencia::numeric, now(), 1, 4, 4, 1,
+										now(), now(), '#LMBB', '#LMBB'           
+from mig_amaral_processos_calil_cury
+
+
+--********** ANDAMENTOS ***********
+
+
+select * from mig_amaral_processos_calil_cury
+
+select * from p_tp_eventos where tev_flg_atv = 1 order by tev_dsc 
+
+INSERT INTO public.p_andamentos
+								(and_fky_pro_ide, and_fky_ddb_ide, and_dta, and_flg_vis, and_fky_tev_ide, and_flg_atv, and_qem, and_qdo, and_dsc, and_qdo_inc, and_qem_inc)
+select 							 mig_pro_ide, null, now(), 0, 49, 1, '#LMBB', now(), situacao_atual, now(), '#LMBB'
+from mig_amaral_processos_calil_cury
+ 
+
+
+
+-- ADV RESPONSAVEL --
+
+alter table mig_areosa_processos add column mig_fun_ide numeric
+
+select * from mig_areosa_processos
+
+select distinct  from mig_areosa_processos
+
+select * from c_funcionarios, mig_areosa_processos
+where upper(to_ascii(trim(fun_nom))) = upper(to_ascii(trim(responsavel)))
+and mig_fun_ide is null
+
+update mig_areosa_processos set mig_fun_ide = fun_ide
+from c_funcionarios 
+where upper(to_ascii(trim(fun_nom))) = upper(to_ascii(trim(responsavel)))
+and mig_fun_ide is null
+
+select distinct responsavel from mig_areosa_processos where mig_fun_ide is null
+
+select * from c_funcionarios where fun_nom ilike '%Ádata%'
+
+Gabriella Cociolito
+Debora Azzi Collet e Silva
+Mariana Alves Pereira de Assumpção
+Rodrigo Prudente de Aquino Spinardi
+Ádata de França Silva
+
+select * from p_processos_x_advogados ppxa 
+
+
+INSERT INTO public.p_processos_x_advogados
+(pad_fky_pro_ide, pad_fky_fun_ide, pad_qem_mig, pad_flg_atv, pad_qem, pad_qdo, pad_qem_inc, pad_qdo_inc)
+select mig_pro_ide, mig_fun_ide, '#LMBB', 1, '#LMBB', now(), '#LMBB', now()
+from mig_areosa_processos
+where tipo = 'Processo'
+and mig_fun_ide is not null
+
+
+INSERT INTO public.p_desdobramentos_x_advogados
+(dad_fky_ddb_ide, dad_fky_fun_ide)
+select mig_ddb_ide, mig_fun_ide
+from mig_areosa_processos
+where tipo <> 'Processo'
+and mig_fun_ide is not null
+and mig_ddb_ide is not null

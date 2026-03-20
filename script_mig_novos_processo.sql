@@ -1,4 +1,4 @@
--- Script gerado automaticamente
+-- Script gerado automaticamente (STAGING)
 CREATE TABLE mig_novos_processo (
     gcpj TEXT,
     reclamante TEXT,

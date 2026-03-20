@@ -1,0 +1,11 @@
+# Ignore Excel files (user dat)
+*.xlsx
+*.xlsm
+
+# Ignore generated SQL scripts
+scripts_staging/
+scripts_migracao/
+
+# Ignore Python caches
+__pycache__/
+*.pyc

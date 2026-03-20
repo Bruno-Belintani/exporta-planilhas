@@ -1,0 +1,96 @@
+GCPJ
+RECLAMANTE
+CARGO
+AJUIZAMENTO
+RECLAMADA
+RECLAMADA_2
+PROCESSO
+JUIZ
+ORGAO JULGADOR TRT
+VARA
+COMARCA
+ESTADO
+DATA CADASTRO
+TIPO_PROCESSO
+ADVOGADO_PARTE
+ÚLTIMO ANDAMENTO - STATUS
+Condenação atual
+Local atual - § º  ª  
+Defesa nos autos?
+ PROXIMA AUDIENCIA DATA
+PROXIMA AUDIENCIA  HORA
+PROXIMA AUDIENCIA DESCRICAO
+Condenacao VARA
+Condenacao TRT
+Condenacao TST
+Valor autorizado para acordo
+Pretensao
+Historico da negociação
+Valor do acordo
+Contato do advogado
+OBRIGAÇÃO DE FAZER
+STATUS
+Data pedido pagamento 
+ACORDO antes da inicial
+ACORDO antes da instrucao
+ACORDO pos-sentença
+PEDIDO  BAIXA GCPJ
+BAIXA TRANS JULGADO
+BAIXA IMPROCEDÊNCIA
+BAIXA ENCERRAMENTO
+COBRANÇA ATIVA
+COBRANÇA CONTESTACAO
+Cargo de confiança - 7ª e 8ª horas
+AC11
+Horas extras após 8ª
+Intervalo intrajornada
+IJ 15 min
+Intervalo 384
+Descaraterização confiança Gerente Geral ou 62 (externo)
+Recalculo   horas extras com divisor correto
+Treinet
+Equiparação
+Acúmulo de função
+Venda de produtos - COMISSOES
+Venda de férias
+Adicional de transferência
+Desvio de função
+Atraso promoção
+Salário substitição
+KM -Despesa s com deslocamento
+Cargo confiança Finan ciamentos
+BBF - Fracionamento de salário
+Condicão bancári a
+Danos morais  - tratamento  - metas
+Danos morais  - transporte de valores
+Danos morais - assalto agência
+Danos morais - assalto sequestro
+Danos morais - ranking
+Danos morais - Assédio sexual
+Danos morais - COVID
+Danos morais - doença
+DM - dispensa discriminatoria
+PLR Proporcional
+REINTEGRAÇÃO
+Pensão vitalícia
+Doença
+PCS - HSBC
+Grupo economico
+PDE
+Integração/Pgto no AP auxili-alimentação
+Verba de representação
+Ilegitimidade Bradesco
+Ajuda de custo Home office
+Multa CCT
+Outros
+Premio desligamento Bamerindus
+Anulação ctt  Aprendiz
+Equiparação bancária
+Responsabilidades subsi e solidária
+PADE/POBJ/Valoriza
+Interrupção de prescrição
+Reversão de JUSTA CAUSA
+Dev descontos
+Inden por frustração de estabilidade
+Manutenção plano de saúde
+Status

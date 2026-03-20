@@ -1,0 +1,13 @@
+{
+    "GCPJ": "p_processos.pro_cod_ext",
+    "RECLAMANTE": "p_processos.pro_par_cnt",
+    "DATA_CADASTRO": "p_processos.pro_dta_ent",
+    "PROCESSO": "p_processos.pro_nro_lmp",
+    "ORGAO_JULGADOR": "p_foro.for_dsc",
+    "DATA_AUDIENCIA": "PULAR",
+    "VARA": "p_vara.var_dsc",
+    "COMARCA": "p_comarca.com_dsc",
+    "ESTADO": "PULAR",
+    "PROCESSO FORMATADO": "p_processos.pro_nro",
+    "Status": "PULAR"
+}
