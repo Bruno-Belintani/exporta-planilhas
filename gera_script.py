@@ -39,6 +39,7 @@ def clean_col_name(name):
         name = name.replace(k, v)
     name = re.sub(r'__+', '_', name)
     name = re.sub(r'[^a-z0-9_]', '', name)
+    name = name.strip('_')
     if re.match(r'^[0-9]', name):
         name = 'c_' + name
     return name
@@ -109,6 +110,191 @@ def get_table_prefix(table_name):
         return parts[1][:3]
     return table_name[:3]
 
+def process_dataframe_columns(df):
+    original_cols = df.columns.tolist()
+    clean_cols = [clean_col_name(c) for c in original_cols]
+    seen = {}
+    final_cols = []
+    for c in clean_cols:
+        if not c:
+            c = "coluna"
+        if c in seen:
+            seen[c] += 1
+            final_cols.append(f"{c}_{seen[c]}")
+        else:
+            seen[c] = 0
+            final_cols.append(c)
+    df.columns = final_cols
+    return original_cols, final_cols
+
+def generate_staging_sql(df, table_name, final_cols):
+    sql_lines = []
+    sql_lines.append(f"-- Script gerado automaticamente (STAGING)")
+    create_table_sql = f"CREATE TABLE {table_name} (\n"
+    col_defs = [f"    {col} TEXT" for col in final_cols]
+    create_table_sql += ",\n".join(col_defs) + "\n);"
+    sql_lines.append(create_table_sql)
+    
+    cols_joined = ", ".join(final_cols)
+    for idx, row in df.iterrows():
+        values = [format_value(val) for val in row]
+        vals_joined = ", ".join(values)
+        insert_sql = f"INSERT INTO {table_name} ({cols_joined}) VALUES ({vals_joined});"
+        sql_lines.append(insert_sql)
+    
+    return "\n".join(sql_lines) + "\n"
+
+def generate_mapping_suggestions(original_cols, memoria):
+    suggestions = []
+    for orig_col in original_cols:
+        if str(orig_col) in memoria:
+            sugestao = memoria[str(orig_col)]
+        else:
+            sugestao = heuristic_guess(orig_col)
+        suggestions.append({
+            "Coluna Original": orig_col,
+            "Destino (tabela.coluna)": sugestao
+        })
+    return suggestions
+
+def generate_final_sql(mapeamento_validado, table_name):
+    # mapeamento_validado is a list of dicts: {'orig_col': ..., 'safe_col': ..., 'tab_dest': ..., 'col_dest': ...}
+    sql_lines = []
+    sql_lines.append("-- Script Final de Migração Dinâmico (ANSI SQL Massivo)")
+    sql_lines.append(f"-- Fonte de staging: {table_name}\n")
+    
+    tabelas_agrupadas = {}
+    for map_item in mapeamento_validado:
+        tab = map_item['tab_dest']
+        if tab not in tabelas_agrupadas:
+            tabelas_agrupadas[tab] = []
+        tabelas_agrupadas[tab].append(map_item)
+        
+    main_tab = max(tabelas_agrupadas.keys(), key=lambda t: len(tabelas_agrupadas[t]))
+    main_prefix = get_table_prefix(main_tab)
+    lookup_tabs = [t for t in tabelas_agrupadas.keys() if t != main_tab]
+    
+    for lt in lookup_tabs:
+        l_pref = get_table_prefix(lt)
+        cols_lt = tabelas_agrupadas[lt]
+        chave_dest = cols_lt[0]['col_dest']
+        chave_safe = cols_lt[0]['safe_col']
+        mig_col = f"mig_{l_pref}_ide"
+        
+        sql_lines.append(f"-- {'='*60}")
+        sql_lines.append(f"-- TABELA DE DOMÍNIO: {lt}")
+        sql_lines.append(f"-- {'='*60}\n")
+        
+        sql_lines.append(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {mig_col} numeric;\n")
+        
+        sql_lines.append(f"-- 1. Faz de-para com os dados já existentes")
+        sql_lines.append(f"UPDATE {table_name} SET {mig_col} = {l_pref}_ide")
+        sql_lines.append(f"FROM {lt}")
+        sql_lines.append(f"WHERE upper(to_ascii(trim(cast({chave_dest} as text)))) = upper(to_ascii(trim(cast({chave_safe} as text))));\n")
+        
+        sql_lines.append(f"-- 2. Insere dados na tabela de domínio que ainda não existem")
+        lt_cols = [c['col_dest'] for c in cols_lt]
+        lt_selects = [c['safe_col'] for c in cols_lt]
+        
+        sql_lines.append(f"INSERT INTO {lt} ({', '.join(lt_cols)})")
+        sql_lines.append(f"SELECT DISTINCT {', '.join(lt_selects)}")
+        sql_lines.append(f"FROM {table_name}")
+        sql_lines.append(f"WHERE {mig_col} IS NULL")
+        sql_lines.append(f"  AND {chave_safe} IS NOT NULL")
+        sql_lines.append(f"  AND {chave_safe} <> 'NULL'")
+        sql_lines.append(f"  AND NOT EXISTS (")
+        sql_lines.append(f"      SELECT 1 FROM {lt}")
+        sql_lines.append(f"      WHERE upper(to_ascii(trim(cast({lt}.{chave_dest} as text)))) = upper(to_ascii(trim(cast({table_name}.{chave_safe} as text))))")
+        sql_lines.append(f"  );\n")
+        
+        sql_lines.append(f"-- 3. Atualiza as chaves novamente captando os recém-inseridos")
+        sql_lines.append(f"UPDATE {table_name} SET {mig_col} = {l_pref}_ide")
+        sql_lines.append(f"FROM {lt}")
+        sql_lines.append(f"WHERE upper(to_ascii(trim(cast({chave_dest} as text)))) = upper(to_ascii(trim(cast({chave_safe} as text))))")
+        sql_lines.append(f"  AND {mig_col} IS NULL;\n")
+        
+    # Tabela Principal
+    sql_lines.append(f"-- {'='*60}")
+    sql_lines.append(f"-- TABELA PRINCIPAL: {main_tab}")
+    sql_lines.append(f"-- {'='*60}\n")
+    
+    main_cols = tabelas_agrupadas[main_tab]
+    first_col_dest = main_cols[0]['col_dest']
+    first_safe_col = main_cols[0]['safe_col']
+    
+    insert_cols = [c['col_dest'] for c in main_cols]
+    insert_vals = []
+    
+    for c in main_cols:
+        dest = c['col_dest']
+        safe = c['safe_col']
+        if 'dta' in dest or 'data' in dest:
+            insert_vals.append(f"NULLIF({safe}, 'NULL')::date")
+        elif 'vlr' in dest or 'val' in dest:
+            insert_vals.append(f"REPLACE(REPLACE({safe}, '.', ''), ',', '.')::numeric")
+        else:
+            insert_vals.append(f"NULLIF({safe}, 'NULL')")
+    
+    for lt in lookup_tabs:
+        l_pref = get_table_prefix(lt)
+        fk_name = f"{main_prefix}_fky_{l_pref}_ide"
+        insert_cols.append(fk_name)
+        insert_vals.append(f"mig_{l_pref}_ide")
+        
+    sql_lines.append(f"INSERT INTO {main_tab} (")
+    sql_lines.append(f"    {', '.join(insert_cols)}")
+    sql_lines.append(f")\nSELECT ")
+    sql_lines.append(f"    {', '.join(insert_vals)}")
+    sql_lines.append(f"FROM {table_name}")
+    sql_lines.append(f"WHERE NOT EXISTS (")
+    sql_lines.append(f"    SELECT 1 FROM {main_tab} m")
+    sql_lines.append(f"    WHERE upper(to_ascii(trim(cast(m.{first_col_dest} as text)))) = upper(to_ascii(trim(cast({table_name}.{first_safe_col} as text))))")
+    sql_lines.append(f");\n")
+    
+    sql_lines.append(f"-- Gravando o ID principal gerado de volta na staging (útil caso vá importar andamentos depois)")
+    mig_main_col = f"mig_{main_prefix}_ide"
+    sql_lines.append(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {mig_main_col} numeric;")
+    sql_lines.append(f"UPDATE {table_name} SET {mig_main_col} = {main_prefix}_ide")
+    sql_lines.append(f"FROM {main_tab}")
+    sql_lines.append(f"WHERE upper(to_ascii(trim(cast({first_col_dest} as text)))) = upper(to_ascii(trim(cast({first_safe_col} as text))));\n")
+    
+    return "\n".join(sql_lines) + "\n"
+
+def parse_mapping_dict(mapping_suggestions, original_cols, final_cols, memoria):
+    mapeamento_validado = []
+    
+    for item in mapping_suggestions:
+        orig_col = item["Coluna Original"]
+        destino = item["Destino (tabela.coluna)"].strip()
+        
+        if not destino or destino.upper() == "PULAR":
+            memoria[orig_col] = "PULAR"
+            continue
+            
+        if "." not in destino:
+            print(f"Aviso: O destino '{destino}' da coluna '{orig_col}' não está no formato tabela.coluna. Será ignorada.")
+            memoria[orig_col] = "PULAR"
+            continue
+            
+        memoria[orig_col] = destino
+        tabela_destino, coluna_destino = destino.split(".", 1)
+        
+        safe_col = ""
+        for orig, safe in zip(original_cols, final_cols):
+            if orig == orig_col:
+                safe_col = safe
+                break
+                
+        if safe_col:
+            mapeamento_validado.append({
+                'orig_col': orig_col,
+                'safe_col': safe_col,
+                'tab_dest': tabela_destino.strip(),
+                'col_dest': coluna_destino.strip()
+            })
+            
+    return mapeamento_validado
+
 def main():
     if len(sys.argv) > 1:
         file_name = sys.argv[1]
@@ -127,7 +313,6 @@ def main():
     if opcao not in ['1', '2']:
         print("Opção inválida. Encerrando.")
         return
-        
         
     base_name = os.path.splitext(os.path.basename(file_name))[0]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -157,72 +342,31 @@ def main():
         
     print(f"Planilha lida com {len(df)} linhas e {len(df.columns)} colunas.")
     
-    # Clean columns
-    original_cols = df.columns.tolist()
-    clean_cols = [clean_col_name(c) for c in original_cols]
-    
-    seen = {}
-    final_cols = []
-    for c in clean_cols:
-        if not c:
-            c = "coluna"
-        if c in seen:
-            seen[c] += 1
-            final_cols.append(f"{c}_{seen[c]}")
-        else:
-            seen[c] = 0
-            final_cols.append(c)
-    
-    df.columns = final_cols
+    original_cols, final_cols = process_dataframe_columns(df)
     memoria = load_memory()
     
-    # ---------------------------------------------------------
-    # STAGING GENERATION
-    # ---------------------------------------------------------
     print(f"\nGerando script de staging (tabela temporária '{table_name}')...")
-    create_table_sql = f"CREATE TABLE {table_name} (\n"
-    col_defs = []
-    for col in final_cols:
-        col_defs.append(f"    {col} TEXT")  
-    create_table_sql += ",\n".join(col_defs)
-    create_table_sql += "\n);\n\n"
     
-    cols_joined = ", ".join(final_cols)
+    staging_sql_content = generate_staging_sql(df, table_name, final_cols)
+    
     with open(output_file, 'w', encoding='latin-1', errors='replace') as f:
-        f.write("-- Script gerado automaticamente (STAGING)\n")
-        f.write(create_table_sql)
-        f.write("\n")
+        f.write(staging_sql_content)
         
-        for idx, row in df.iterrows():
-            values = [format_value(val) for val in row]
-            vals_joined = ", ".join(values)
-            insert_sql = f"INSERT INTO {table_name} ({cols_joined}) VALUES ({vals_joined});\n"
-            f.write(insert_sql)
-            
-            if (idx + 1) % 1000 == 0:
-                print(f"Geradas {idx + 1} linhas de staging...")
     print(f"[OK] Script de Staging gerado com sucesso em '{output_file}'!")
     
     if opcao == '1':
         print("\nOpção 1 concluída: Apenas o script da tabela bruta foi gerado.")
         return
 
-    # ---------------------------------------------------------
-    # FILE MAPPING LOGIC
-    # ---------------------------------------------------------
     if not os.path.exists(txt_mapeamento):
+        suggestions = generate_mapping_suggestions(original_cols, memoria)
         with open(txt_mapeamento, 'w', encoding='utf-8') as f:
             f.write(f"# Mapeamento de colunas para '{file_name}'\n")
             f.write("# Edite o lado direito do sinal de igual (=) indicando a tabela.coluna de destino no seu sistema.\n")
             f.write("# Exemplo: RECLAMANTE = p_processos.pro_par_pri\n")
             f.write("# Se não quiser migrar a coluna, deixe em branco ou escreva PULAR\n\n")
-            
-            for orig_col in original_cols:
-                if str(orig_col) in memoria:
-                    sugestao = memoria[str(orig_col)]
-                else:
-                    sugestao = heuristic_guess(orig_col)
-                f.write(f"{orig_col} = {sugestao}\n")
+            for sug in suggestions:
+                f.write(f"{sug['Coluna Original']} = {sug['Destino (tabela.coluna)']}\n")
         
         print("\n" + "="*70)
         print("ATENÇÃO: Mapeamento interativo via arquivo")
@@ -232,160 +376,35 @@ def main():
         print(f"Comando para gerar o final: python gera_script.py {file_name}")
         return
 
-    # If the file exists, parse it and update memory / generate final sql
-    mapeamento_validado = []
     print(f"\nLendo mapeamentos do arquivo '{txt_mapeamento}'...")
-    
     with open(txt_mapeamento, 'r', encoding='utf-8') as f:
         lines = f.readlines()
         
+    read_suggestions = []
     for line in lines:
         line = line.strip()
         if not line or line.startswith('#'):
             continue
-            
         if '=' in line:
             left, right = line.split('=', 1)
-            orig_col = left.strip()
-            destino = right.strip()
+            read_suggestions.append({
+                "Coluna Original": left.strip(),
+                "Destino (tabela.coluna)": right.strip()
+            })
             
-            if not destino or destino.upper() == "PULAR":
-                memoria[orig_col] = "PULAR"
-                continue
-                
-            if "." not in destino:
-                print(f"Aviso: O destino '{destino}' da coluna '{orig_col}' não está no formato tabela.coluna. Será ignorada.")
-                memoria[orig_col] = "PULAR"
-                continue
-                
-            memoria[orig_col] = destino
-            tabela_destino, coluna_destino = destino.split(".", 1)
-            
-            safe_col = ""
-            for orig, safe in zip(original_cols, final_cols):
-                if orig == orig_col:
-                    safe_col = safe
-                    break
-                    
-            if safe_col:
-                mapeamento_validado.append({
-                    'orig_col': orig_col,
-                    'safe_col': safe_col,
-                    'tab_dest': tabela_destino.strip(),
-                    'col_dest': coluna_destino.strip()
-                })
-
+    mapeamento_validado = parse_mapping_dict(read_suggestions, original_cols, final_cols, memoria)
     save_memory(memoria)
     print("[OK] Mapeamento lido e memória atualizada!")
     
     if mapeamento_validado:
         print("\nGerando script final dinâmico em PL/pgSQL (Lookup + Insert)...")
-        tabelas_agrupadas = {}
-        for map_item in mapeamento_validado:
-            tab = map_item['tab_dest']
-            if tab not in tabelas_agrupadas:
-                tabelas_agrupadas[tab] = []
-            tabelas_agrupadas[tab].append(map_item)
-            
+        final_sql_content = generate_final_sql(mapeamento_validado, table_name)
         with open(output_final, 'w', encoding='latin-1', errors='replace') as f:
-            f.write("-- Script Final de Migração Dinâmico (ANSI SQL Massivo)\n")
-            f.write(f"-- Fonte de staging: {table_name}\n\n")
-            
-            # Determinar a tabela principal (a que tiver mais colunas mapeadas)
-            main_tab = max(tabelas_agrupadas.keys(), key=lambda t: len(tabelas_agrupadas[t]))
-            main_prefix = get_table_prefix(main_tab)
-            lookup_tabs = [t for t in tabelas_agrupadas.keys() if t != main_tab]
-            
-            # Subtabelas / Lookups (Domínios)
-            for lt in lookup_tabs:
-                l_pref = get_table_prefix(lt)
-                cols_lt = tabelas_agrupadas[lt]
-                
-                # Assume a primeira coluna mapeada como a chave de busca (ex: var_dsc)
-                chave_dest = cols_lt[0]['col_dest']
-                chave_safe = cols_lt[0]['safe_col']
-                mig_col = f"mig_{l_pref}_ide"
-                
-                f.write(f"-- {'='*60}\n")
-                f.write(f"-- TABELA DE DOMÍNIO: {lt}\n")
-                f.write(f"-- {'='*60}\n\n")
-                
-                f.write(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {mig_col} numeric;\n\n")
-                
-                f.write(f"-- 1. Faz de-para com os dados já existentes\n")
-                f.write(f"UPDATE {table_name} SET {mig_col} = {l_pref}_ide\n")
-                f.write(f"FROM {lt}\n")
-                f.write(f"WHERE upper(to_ascii(trim(cast({chave_dest} as text)))) = upper(to_ascii(trim(cast({chave_safe} as text))));\n\n")
-                
-                f.write(f"-- 2. Insere dados na tabela de domínio que ainda não existem\n")
-                lt_cols = [c['col_dest'] for c in cols_lt]
-                lt_selects = [c['safe_col'] for c in cols_lt]
-                
-                f.write(f"INSERT INTO {lt} ({', '.join(lt_cols)})\n")
-                f.write(f"SELECT DISTINCT {', '.join(lt_selects)}\n")
-                f.write(f"FROM {table_name}\n")
-                f.write(f"WHERE {mig_col} IS NULL\n")
-                f.write(f"  AND {chave_safe} IS NOT NULL\n")
-                f.write(f"  AND {chave_safe} <> 'NULL'\n")
-                f.write(f"  AND NOT EXISTS (\n")
-                f.write(f"      SELECT 1 FROM {lt}\n")
-                f.write(f"      WHERE upper(to_ascii(trim(cast({lt}.{chave_dest} as text)))) = upper(to_ascii(trim(cast({table_name}.{chave_safe} as text))))\n")
-                f.write(f"  );\n\n")
-                
-                f.write(f"-- 3. Atualiza as chaves novamente captando os recém-inseridos\n")
-                f.write(f"UPDATE {table_name} SET {mig_col} = {l_pref}_ide\n")
-                f.write(f"FROM {lt}\n")
-                f.write(f"WHERE upper(to_ascii(trim(cast({chave_dest} as text)))) = upper(to_ascii(trim(cast({chave_safe} as text))))\n")
-                f.write(f"  AND {mig_col} IS NULL;\n\n")
-                
-            # Tabela Principal
-            f.write(f"-- {'='*60}\n")
-            f.write(f"-- TABELA PRINCIPAL: {main_tab}\n")
-            f.write(f"-- {'='*60}\n\n")
-            
-            main_cols = tabelas_agrupadas[main_tab]
-            first_col_dest = main_cols[0]['col_dest']
-            first_safe_col = main_cols[0]['safe_col']
-            
-            insert_cols = [c['col_dest'] for c in main_cols]
-            insert_vals = []
-            
-            for c in main_cols:
-                dest = c['col_dest']
-                safe = c['safe_col']
-                if 'dta' in dest or 'data' in dest:
-                    insert_vals.append(f"NULLIF({safe}, 'NULL')::date")
-                elif 'vlr' in dest or 'val' in dest:
-                    insert_vals.append(f"REPLACE(REPLACE({safe}, '.', ''), ',', '.')::numeric")
-                else:
-                    insert_vals.append(f"NULLIF({safe}, 'NULL')")
-            
-            for lt in lookup_tabs:
-                l_pref = get_table_prefix(lt)
-                fk_name = f"{main_prefix}_fky_{l_pref}_ide"
-                insert_cols.append(fk_name)
-                insert_vals.append(f"mig_{l_pref}_ide")
-                
-            f.write(f"INSERT INTO {main_tab} (\n")
-            f.write(f"    {', '.join(insert_cols)}\n")
-            f.write(f")\nSELECT \n")
-            f.write(f"    {', '.join(insert_vals)}\n")
-            f.write(f"FROM {table_name}\n")
-            f.write(f"WHERE NOT EXISTS (\n")
-            f.write(f"    SELECT 1 FROM {main_tab} m\n")
-            f.write(f"    WHERE upper(to_ascii(trim(cast(m.{first_col_dest} as text)))) = upper(to_ascii(trim(cast({table_name}.{first_safe_col} as text))))\n")
-            f.write(f");\n\n")
-            
-            f.write(f"-- Gravando o ID principal gerado de volta na staging (útil caso vá importar andamentos depois)\n")
-            mig_main_col = f"mig_{main_prefix}_ide"
-            f.write(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {mig_main_col} numeric;\n")
-            f.write(f"UPDATE {table_name} SET {mig_main_col} = {main_prefix}_ide\n")
-            f.write(f"FROM {main_tab}\n")
-            f.write(f"WHERE upper(to_ascii(trim(cast({first_col_dest} as text)))) = upper(to_ascii(trim(cast({first_safe_col} as text))));\n\n")
-            
+            f.write(final_sql_content)
         print(f"[OK] Script dinâmico em lote gerado com sucesso em '{output_final}'!")
     else:
         print("\nNenhuma coluna válida foi mapeada no arquivo .txt. O script final dinâmico não foi gerado.")
 
 if __name__ == '__main__':
     main()
+
