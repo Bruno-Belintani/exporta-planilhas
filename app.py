@@ -16,7 +16,7 @@ from gera_script import (
 
 # Configuração da Página
 st.set_page_config(
-    page_title="JurisData Obsidian - LM Exportador", 
+    page_title="LM Exportador", 
     page_icon="logo.png", 
     layout="wide",
     initial_sidebar_state="expanded"
@@ -368,8 +368,8 @@ elif st.session_state.step == 3:
     with col_main:
         with st.container(border=True):
             # NOVO: Ferramenta de Mapeamento de Cabeçalhos
-            with st.expander("🔧 Mapear Cabeçalhos (Renomear Colunas)", expanded=False):
-                st.markdown("<p style='font-size: 13px; color: #64748b;'>Edite os nomes na coluna 'Novo Nome' para renomear os cabeçalhos da planilha.</p>", unsafe_allow_html=True)
+            with st.expander("Mapear Cabeçalhos (Renomear Colunas)", expanded=False):
+                st.markdown("<p style='font-size: 13px; color: #64748b;'>Edite os nomes para renomear os cabeçalhos da planilha.</p>", unsafe_allow_html=True)
                 cols_mapping = pd.DataFrame({
                     "Original": st.session_state.df.columns
                 })
