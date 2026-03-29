@@ -266,6 +266,52 @@ def render_info_panel():
     html_content += '</div>'
     st.markdown(html_content, unsafe_allow_html=True)
 
+# --- CALLBACKS DE SINCRONIZAÇÃO ROBUSTA ---
+
+def sync_header_edits():
+    """Processa mudanças nos nomes das colunas via mapeador."""
+    key = f"col_editor_{st.session_state.reset_counter}"
+    if key in st.session_state:
+        changes = st.session_state[key]
+        # Pegamos o DataFrame original de colunas que passamos para o editor
+        current_cols = list(st.session_state.df.columns)
+        
+        # Aplicamos apenas as edições feitas no 'edited_rows'
+        edited = changes.get("edited_rows", {})
+        for idx, val in edited.items():
+            if "Original" in val:
+                current_cols[idx] = val["Original"]
+                
+        # Atualizamos o DataFrame principal com os novos cabeçalhos
+        st.session_state.df.columns = current_cols
+        # Recalcula colunas finais e SQL
+        _, nf_cols = process_dataframe_columns(st.session_state.df)
+        st.session_state.final_cols = nf_cols
+        st.session_state.staging_sql = generate_staging_sql(
+            st.session_state.df, 
+            st.session_state.table_name, 
+            nf_cols
+        )
+
+def sync_df_edits():
+    """Processa mudanças de dados na planilha principal via deltas."""
+    key = f"editor_{st.session_state.reset_counter}"
+    if key in st.session_state:
+        changes = st.session_state[key]
+        edited = changes.get("edited_rows", {})
+        
+        # Aplicamos cada mudança capturada pelo widget ao Session State de forma direta
+        for row_idx, cols in edited.items():
+            for col_name, val in cols.items():
+                st.session_state.df.iloc[row_idx, st.session_state.df.columns.get_loc(col_name)] = val
+        
+        # Recalcula o SQL com os novos dados editados
+        st.session_state.staging_sql = generate_staging_sql(
+            st.session_state.df, 
+            st.session_state.table_name, 
+            st.session_state.final_cols
+        )
+
 def render_breadcrumb(step):
     # Passos: Upload (1), Preview (3), SQL (4)
     steps_list = [1, 3, 4]
@@ -373,46 +419,25 @@ elif st.session_state.step == 3:
                 cols_mapping = pd.DataFrame({
                     "Original": st.session_state.df.columns
                 })
-                edited_cols = st.data_editor(
+                # Usar callback para evitar conflito de estado
+                st.data_editor(
                     cols_mapping, 
                     use_container_width=True, 
                     hide_index=True,
-                    key=f"col_editor_{st.session_state.reset_counter}"
+                    key=f"col_editor_{st.session_state.reset_counter}",
+                    on_change=sync_header_edits
                 )
-                
-                # Aplica renomeação se houver mudanças detectadas
-                if "Original" in edited_cols.columns:
-                    new_names = edited_cols["Original"].tolist()
-                    if list(st.session_state.df.columns) != new_names:
-                        st.session_state.df.columns = new_names
-                        # Atualiza SQL com novos nomes
-                        _, nf_cols = process_dataframe_columns(st.session_state.df)
-                        st.session_state.final_cols = nf_cols
-                        st.session_state.staging_sql = generate_staging_sql(
-                            st.session_state.df, 
-                            st.session_state.table_name, 
-                            nf_cols
-                        )
-                        st.rerun()
 
             st.markdown("<br>", unsafe_allow_html=True)
 
-            # Planilha Principal com Dynamic Key para Reset Robusto
-            edited_df = st.data_editor(
+            # Planilha Principal com Dynamic Key e Callback Sync
+            st.data_editor(
                 st.session_state.df, 
                 use_container_width=True, 
                 height=350,
-                key=f"editor_{st.session_state.reset_counter}"
+                key=f"editor_{st.session_state.reset_counter}",
+                on_change=sync_df_edits
             )
-            
-            # Persistência de Dados
-            if not edited_df.equals(st.session_state.df):
-                st.session_state.df = edited_df
-                st.session_state.staging_sql = generate_staging_sql(
-                    st.session_state.df, 
-                    st.session_state.table_name, 
-                    st.session_state.final_cols
-                )
             
             nav_col1, nav_col2, nav_col3 = st.columns([1, 1, 1.5])
             with nav_col1:
