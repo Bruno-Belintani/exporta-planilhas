@@ -191,15 +191,28 @@ def inject_custom_css():
 def draw_sidebar():
     with st.sidebar:
         st.markdown(f"""
-            <div style="margin-bottom: 3rem;">
-                <span style="font-size: 1.25rem; font-weight: 800; color: #1e293b; letter-spacing: -0.025em;">Digital Architect</span>
-                <p style="font-size: 0.75rem; color: #64748b; margin-top: 4px;">Legal Ledger v1.0</p>
+        <div style="padding: 1rem 0;">
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 2rem; padding: 0 0.5rem;">
+                <div style="background-color: #185FA5; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                    <span class="material-symbols-outlined" style="color: white; font-size: 20px;">database</span>
+                </div>
+                <div>
+                    <div style="font-weight: 800; color: #1e293b; font-size: 1rem; line-height: 1;">LM Exportador</div>
+                </div>
             </div>
-        """, unsafe_allow_html=True)
+            
+            <div style="margin-bottom: 2rem;">
+                <div style="font-size: 0.7rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1rem; padding: 0 0.5rem;">Navegação</div>
+                <div class="nav-item-active" style="display: flex; align-items: center; gap: 12px; padding: 0.75rem 0.5rem; border-radius: 8px; cursor: pointer; margin-bottom: 0.5rem; background-color: #f1f5f9; color: #185FA5;">
+                    <span class="material-symbols-outlined" style="font-size: 20px;">dashboard</span>
+                    <span style="font-weight: 600; font-size: 0.9rem;">Área de Trabalho</span>
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
         
         steps = [
             ("cloud_upload", "Upload", 1),
-            ("alt_route", "Mapeamento", 2),
             ("visibility", "Preview", 3),
             ("database", "Gerar SQL", 4)
         ]
