@@ -9,3 +9,8 @@ scripts_migracao/
 # Ignore Python caches
 __pycache__/
 *.pyc
+
+# Ignore Build and Distribution folders
+build/
+dist/
+*.spec

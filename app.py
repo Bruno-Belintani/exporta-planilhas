@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import os
+import tkinter as tk
+from tkinter import filedialog
 from datetime import datetime
 import streamlit.components.v1 as components
 from gera_script import (
@@ -190,16 +192,23 @@ def inject_custom_css():
 
 def draw_sidebar():
     with st.sidebar:
+        # Logo e Título
         st.markdown(f"""
-            <div style="margin-bottom: 3rem;">
-                <span style="font-size: 1.25rem; font-weight: 800; color: #1e293b; letter-spacing: -0.025em;">Digital Architect</span>
-                <p style="font-size: 0.75rem; color: #64748b; margin-top: 4px;">Legal Ledger v1.0</p>
+        <div style="padding: 1rem 0;">
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 2.5rem; padding: 0 0.5rem;">
+                <div style="background-color: #185FA5; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                    <span class="material-symbols-outlined" style="color: white; font-size: 20px;">database</span>
+                </div>
+                <div>
+                    <div style="font-weight: 800; color: #1e293b; font-size: 1rem; line-height: 1;">LM Exportador</div>
+                </div>
             </div>
+        </div>
         """, unsafe_allow_html=True)
         
+        # Itens de Navegação Controlados pelo Estado
         steps = [
             ("cloud_upload", "Upload", 1),
-            ("alt_route", "Mapeamento", 2),
             ("visibility", "Preview", 3),
             ("database", "Gerar SQL", 4)
         ]
@@ -207,25 +216,16 @@ def draw_sidebar():
         for icon, label, step_num in steps:
             is_active = st.session_state.step == step_num
             active_class = "active" if is_active else ""
+            
+            # Usando uma única string de markdown para evitar que o Streamlit quebre a renderização HTML
             st.markdown(f"""
                 <div class="nav-item {active_class}">
                     <span class="material-symbols-outlined">{icon}</span>
-                    <span style="font-size: 14px;">{label}</span>
+                    <span style="font-size: 14px; font-weight: {('700' if is_active else '500')};">{label}</span>
                 </div>
             """, unsafe_allow_html=True)
-            
+        
         st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown("""
-            <div style="padding-top: 2rem; border-top: 1px solid #e2e8f0; display: flex; align-items: center; gap: 12px;">
-                <div style="width: 40px; height: 40px; border-radius: 50%; background-color: #e2e8f0; overflow: hidden;">
-                    <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuBuXILt4jdPJnbKAHDSKJtUiO_MI6plbiqsHh79yutIFlZGGMZFbzlsdNMMX7UcxPu_xaRhzBk57frvfMvfb6W0He7-eTtBqqu9WCEQed_6WZF8u4XN4tmR3QtW0RLGL6arsKtiD0M-LCh52OASQUSbQnasF_jBkFQ7lakdIxZKzYc2YPahD5gzZ9NF6e-p6xnlh-cIkqP37zvRna9JVFeSrHUS5M8CWV6Tr8Xn4B-OgwATiqNZQdiXBEEkExxX3lZ5uF4gBMmmYhQ" style="width: 100%; height: 100%; object-fit: cover;">
-                </div>
-                <div>
-                    <div style="font-size: 14px; font-weight: 700; color: #1e293b;">Admin User</div>
-                    <div style="font-size: 11px; color: #64748b;">Legal Migrator</div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
 
 def draw_top_bar():
     st.markdown("""
@@ -265,6 +265,34 @@ def render_info_panel():
     
     html_content += '</div>'
     st.markdown(html_content, unsafe_allow_html=True)
+
+def save_file_native(content, default_filename):
+    """Abre um diálogo nativo do Windows para salvar o arquivo, 
+    contornando restrições de download do webview."""
+    try:
+        # Inicializa o Tkinter de forma oculta
+        root = tk.Tk()
+        root.withdraw()
+        # Garante que a janela de salvamento apareça na frente do aplicativo
+        root.attributes("-topmost", True)
+        
+        # Abre o diálogo de "Salvar Como"
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".sql",
+            initialfile=default_filename,
+            filetypes=[("Arquivos SQL", "*.sql"), ("Todos os arquivos", "*.*")],
+            title="Escolha onde salvar o seu Script SQL"
+        )
+        root.destroy()
+        
+        if file_path:
+            # Gravamos o arquivo diretamente no disco
+            with open(file_path, "w", encoding="latin-1") as f:
+                f.write(content)
+            return file_path
+    except Exception as e:
+        st.error(f"Erro ao abrir diálogo de salvamento: {e}")
+    return None
 
 # --- CALLBACKS DE SINCRONIZAÇÃO ROBUSTA ---
 
@@ -538,14 +566,11 @@ elif st.session_state.step == 4:
                     st.session_state.step = 3
                     st.rerun()
             with col_d2:
-                st.download_button(
-                    label="Baixar Script (.sql)",
-                    data=st.session_state.staging_sql,
-                    file_name=f"script_{st.session_state.table_name}.sql",
-                    mime="text/plain",
-                    use_container_width=True,
-                    type="primary"
-                )
+                if st.button("Salvar Script SQL", use_container_width=True, type="primary", icon=":material/save:"):
+                    default_name = f"script_{st.session_state.table_name}.sql"
+                    caminho = save_file_native(st.session_state.staging_sql, default_name)
+                    if caminho:
+                        st.success(f"✅ Arquivo salvo com sucesso em:\n{caminho}")
 
     with col_side:
         render_info_panel()
