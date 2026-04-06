@@ -13,7 +13,8 @@ from gera_script import (
     parse_mapping_dict,
     clean_col_name,
     load_memory,
-    save_memory
+    save_memory,
+    fix_dataframe_mojibake
 )
 
 # Configuração da Página
@@ -396,6 +397,10 @@ if st.session_state.step == 1:
                 if uploaded_file:
                     with st.spinner("Analisando estrutura..."):
                         df = pd.read_excel(uploaded_file)
+                        
+                        # Tratamento automático de codificação falha utf-8 para latin-1
+                        df = fix_dataframe_mojibake(df)
+                        
                         base = os.path.splitext(uploaded_file.name)[0]
                         table = clean_col_name(base)
                         _, f_cols = process_dataframe_columns(df)

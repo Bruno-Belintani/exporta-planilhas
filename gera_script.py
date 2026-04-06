@@ -9,6 +9,27 @@ from datetime import datetime
 
 MEMORIA_FILE = 'memoria_mapeamento.json'
 
+def fix_mojibake(val):
+    if isinstance(val, str):
+        # Tenta reverter quando UTF-8 é lido incorretamente como Windows-1252 (cp1252)
+        try:
+            return val.encode('cp1252').decode('utf-8')
+        except Exception:
+            pass
+        # Fallback para latin-1
+        try:
+            return val.encode('latin-1').decode('utf-8')
+        except Exception:
+            pass
+    return val
+
+def fix_dataframe_mojibake(df):
+    df.columns = [fix_mojibake(col) for col in df.columns]
+    for col in df.columns:
+        if df[col].dtype == object or pd.api.types.is_string_dtype(df[col]):
+            df[col] = df[col].apply(fix_mojibake)
+    return df
+
 def load_memory():
     if os.path.exists(MEMORIA_FILE):
         try:
@@ -341,6 +362,9 @@ def main():
         return
         
     print(f"Planilha lida com {len(df)} linhas e {len(df.columns)} colunas.")
+    
+    # Tratamento automático de codificação falha utf-8 para latin-1
+    df = fix_dataframe_mojibake(df)
     
     original_cols, final_cols = process_dataframe_columns(df)
     memoria = load_memory()
