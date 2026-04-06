@@ -74,24 +74,35 @@ def inject_custom_css():
         
         [data-testid="stSidebarNav"] {display: none;}
         
-        .nav-item {
+        /* Estilo dos Botões da Sidebar para imitar os Nav Items */
+        [data-testid="stSidebar"] div.stButton > button {
+            background-color: transparent !important;
+            border: none !important;
+            color: #64748b !important;
             display: flex;
             align-items: center;
+            justify-content: flex-start;
             gap: 12px;
-            padding: 12px 16px;
+            padding: 8px 16px;
             border-radius: 8px;
-            color: #64748b;
-            text-decoration: none !important;
             font-weight: 500;
             margin-bottom: 4px;
+            width: 100%;
+            height: 48px;
+            box-shadow: none !important;
+            transition: all 0.2s;
+            border: 1px solid transparent !important;
+        }
+
+        [data-testid="stSidebar"] div.stButton > button:hover {
+            color: #185FA5 !important;
+            background-color: #f1f5f9 !important;
         }
         
-        .nav-item.active {
-            color: #185FA5;
-            background-color: white;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            font-weight: 700;
-            border-right: 3px solid #185FA5;
+        [data-testid="stSidebar"] div.stButton > button p {
+            font-size: 14px;
+            margin: 0;
+            text-align: left;
         }
 
         /* Top Bar Wrapper Modernizado */
@@ -209,22 +220,44 @@ def draw_sidebar():
         
         # Itens de Navegação Controlados pelo Estado
         steps = [
-            ("cloud_upload", "Upload", 1),
-            ("visibility", "Preview", 3),
-            ("database", "Gerar SQL", 4)
+            (":material/cloud_upload:", "Upload", 1),
+            (":material/visibility:", "Preview", 3),
+            (":material/database:", "Gerar SQL", 4)
         ]
         
+        active_css = ""
+        button_idx = 2
         for icon, label, step_num in steps:
             is_active = st.session_state.step == step_num
-            active_class = "active" if is_active else ""
             
-            # Usando uma única string de markdown para evitar que o Streamlit quebre a renderização HTML
-            st.markdown(f"""
-                <div class="nav-item {active_class}">
-                    <span class="material-symbols-outlined">{icon}</span>
-                    <span style="font-size: 14px; font-weight: {('700' if is_active else '500')};">{label}</span>
-                </div>
-            """, unsafe_allow_html=True)
+            if is_active:
+                active_css = f"""
+                [data-testid="stSidebar"] .element-container:nth-child({button_idx}) div.stButton > button {{
+                    color: #185FA5 !important;
+                    background-color: white !important;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
+                    font-weight: 700 !important;
+                    border-right: 3px solid #185FA5 !important;
+                }}
+                [data-testid="stSidebar"] .element-container:nth-child({button_idx}) div.stButton > button span {{
+                    color: #185FA5 !important;
+                }}
+                [data-testid="stSidebar"] .element-container:nth-child({button_idx}) div.stButton > button p {{
+                    font-weight: 700 !important;
+                }}
+                """
+                
+            if st.button(label, icon=icon, key=f"nav_{step_num}", use_container_width=True):
+                if step_num in [3, 4] and "df" not in st.session_state:
+                    st.toast("⚠️ Faça o upload de um arquivo na aba Upload primeiro!")
+                else:
+                    st.session_state.step = step_num
+                    st.rerun()
+            
+            button_idx += 1
+            
+        if active_css:
+            st.markdown(f"<style>{active_css}</style>", unsafe_allow_html=True)
         
         st.markdown("<br><br>", unsafe_allow_html=True)
 
