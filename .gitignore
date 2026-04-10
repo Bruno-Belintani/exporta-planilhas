@@ -1,16 +1,49 @@
-# Ignore Excel files (user dat)
-*.xlsx
-*.xlsm
-
-# Ignore generated SQL scripts
-scripts_staging/
-scripts_migracao/
-
-# Ignore Python caches
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Ignore Build and Distribution folders
+# Build artifacts (PyInstaller)
+*.spec
 build/
 dist/
-*.spec
+
+# Local Data and Logs
+*.sql
+*.xlsx
+*.csv
+*.json
+*.txt
+!requirements.txt
+!README.md
+
+# Large Assets
+logo_header2.png
+
+# System
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+.gemini/
+.streamlit/
