@@ -473,6 +473,8 @@ if st.session_state.step == 1:
                         st.session_state.uploaded_filename = uploaded_file.name
                         st.session_state.final_cols = f_cols
                         st.session_state.staging_sql = generate_staging_sql(df, table, f_cols)
+                        st.session_state.final_sql = "" # Limpa SQL anterior
+                        st.session_state.target_template = None # Limpa template anterior
                         st.session_state.reset_counter = 0 # Inicia contador de reset
                         st.rerun()
             else:
@@ -551,6 +553,8 @@ elif st.session_state.step == 3:
                     _, r_cols = process_dataframe_columns(st.session_state.df)
                     st.session_state.final_cols = r_cols
                     st.session_state.staging_sql = generate_staging_sql(st.session_state.df, st.session_state.table_name, r_cols)
+                    st.session_state.final_sql = "" # Limpa SQL gerado
+                    st.session_state.target_template = None # Limpa template selecionado
                     st.rerun()
             
             with col_actions[2]:
@@ -562,6 +566,7 @@ elif st.session_state.step == 3:
                         st.session_state.staging_table_name, 
                         r_cols
                     )
+                    st.session_state.final_sql = "" # CRITICAL: Limpa o SQL de INSERT anterior
                     st.session_state.target_template = None
                     st.session_state.step = 4
                     st.rerun()
