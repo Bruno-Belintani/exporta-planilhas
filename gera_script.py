@@ -316,6 +316,226 @@ def parse_mapping_dict(mapping_suggestions, original_cols, final_cols, memoria):
             
     return mapeamento_validado
 
+# --- NOVO SISTEMA DE TEMPLATES DE INSERT ---
+
+INSERT_TEMPLATES_REGISTRY = {
+    'empresas': {
+        'id': 'empresas',
+        'label': 'Empresas (c_empresas)',
+        'targetTable': 'c_empresas',
+        'pk_field': 'emp_ide',
+        'mig_pk_field': 'mig_emp_ide',
+        'fields': [
+            {'name': 'emp_nom_com', 'label': 'Nome/Razão Social', 'type': 'spreadsheet', 'required': True, 'hints': ['razao_social', 'nome', 'empresa', 'cliente']},
+            {'name': 'emp_cpf_cnp', 'label': 'CPF/CNPJ', 'type': 'spreadsheet', 'required': True, 'hints': ['cnpj', 'cpf', 'cnpj_cpf', 'cpf_cgc']},
+            {'name': 'emp_cod_ext', 'label': 'Código Externo', 'type': 'spreadsheet', 'required': False, 'hints': ['codigo_externo', 'cod_ext', 'id_externo']},
+            {'name': 'nome_chave', 'label': 'Coluna Chave (Apelido/Busca)', 'type': 'spreadsheet', 'required': True, 'hints': ['apelido', 'nome_fantasia', 'razao_social']},
+            
+            {'name': 'emp_tpo_pes', 'label': 'Tipo Pessoa (J/F)', 'type': 'configurable', 'default': 'J', 'required': True},
+            {'name': 'emp_qem', 'label': 'Tag Auditoria', 'type': 'configurable', 'default': '#LMBB', 'required': True},
+            {'name': 'emp_fky_sit_ide', 'label': 'Filial', 'type': 'configurable', 'default': '1', 'required': True},
+            
+            {'name': 'emp_ide', 'label': 'ID (Sequence)', 'type': 'fixed', 'default': "nextval('sq_c_empresas')"},
+            {'name': 'emp_ape', 'label': 'Apelido', 'type': 'spreadsheet', 'required': True, 'hints': ['apelido', 'nome_fantasia', 'nome_curto']},
+            {'name': 'emp_dta_cad', 'label': 'Data Cadastro', 'type': 'spreadsheet', 'required': False, 'hints': ['data_cadastro', 'data_cad', 'dta_cad']},
+            {'name': 'emp_flg_atv', 'label': 'Ativo', 'type': 'fixed', 'default': "1"},
+            {'name': 'emp_tpo_nac', 'label': 'Nacional', 'type': 'fixed', 'default': "1"},
+            {'name': 'emp_qdo', 'label': 'Data Operação', 'type': 'fixed', 'default': "now()"},
+        ]
+    }
+}
+
+def generate_insert_sql(template_id, mapping_data, global_configs, staging_table):
+    """
+    Gera o SQL de INSERT baseado em um template e no mapeamento do usuário.
+    mapping_data: dict { 'field_name': { 'column': 'col_name', 'override': 'val' } ou 'config_value' }
+    """
+    if template_id not in INSERT_TEMPLATES_REGISTRY:
+        return "-- Template não encontrado"
+        
+    template = INSERT_TEMPLATES_REGISTRY[template_id]
+    fields_def = template['fields']
+    
+    target_cols = []
+    select_vals = []
+    
+    # Mapeia os nomes das colunas da planilha para facilitar o preenchimento de campos 'fixed' que dependem delas
+    spreadsheet_map = {}
+    for f in fields_def:
+        m_item = mapping_data.get(f['name'])
+        if isinstance(m_item, dict):
+            spreadsheet_map[f['name']] = m_item.get('column', 'NULL')
+        else:
+            spreadsheet_map[f['name']] = m_item if f['type'] == 'spreadsheet' else 'NULL'
+
+    for f in fields_def:
+        fname = f['name']
+        ftype = f['type']
+        
+        if fname == 'nome_chave': continue
+        
+        target_cols.append(fname)
+        m_item = mapping_data.get(fname)
+        
+        # Extrai coluna e override
+        if isinstance(m_item, dict):
+            col_source = m_item.get('column')
+            override_val = m_item.get('override')
+        else:
+            col_source = m_item if ftype == 'spreadsheet' else None
+            override_val = m_item if ftype != 'spreadsheet' else None
+
+        if ftype == 'spreadsheet':
+            # Híbrido: Prioriza override se preenchido
+            if override_val and str(override_val).strip():
+                val = override_val
+                if isinstance(val, str) and not (val.startswith("'") or '(' in val or val.isupper()):
+                    val = f"'{val}'"
+                select_vals.append(f"{val} AS {fname}")
+            elif col_source:
+                if fname == 'emp_cod_ext':
+                    select_vals.append(f"{col_source}::text AS {fname}")
+                else:
+                    select_vals.append(f"{col_source} AS {fname}")
+            else:
+                select_vals.append(f"NULL AS {fname}")
+                
+        elif ftype == 'configurable' or ftype == 'fixed':
+            # Para configuráveis e fixos (que agora são editáveis), o valor vem do 'override' ou do valor direto
+            val = override_val if override_val is not None else f.get('default', '')
+            
+            if ftype == 'fixed' and val == f.get('default'):
+                # Substitui placeholders apenas se o usuário não mexeu no valor padrão
+                for ref_name, col_ref in spreadsheet_map.items():
+                    if f"{{{ref_name}}}" in str(val):
+                        val = str(val).replace(f"{{{ref_name}}}", str(col_ref))
+            
+            # Escapa aspas se necessário (se não for código SQL complexo)
+            if isinstance(val, str):
+                orig_val = str(val).strip()
+                # Se não tem aspas, não tem parênteses (função) e não é NULL nem palavra chave SQL reservada
+                if not (orig_val.startswith("'") or '(' in orig_val or orig_val.isupper() or orig_val == 'NULL'):
+                    val = f"'{orig_val}'"
+            select_vals.append(f"{val} AS {fname}")
+
+    # Adicionando campos redundantes de auditoria
+    audit_fields = ['emp_qem_inc', 'emp_qdo_inc', 'emp_qem_cli_inc', 'emp_qdo_cli_inc']
+    # Busca o valor de emp_qem (que pode estar no override ou valor direto)
+    emp_qem_item = mapping_data.get('emp_qem')
+    if isinstance(emp_qem_item, dict):
+        qem_val = emp_qem_item.get('override', "'#LMBB'")
+    else:
+        qem_val = emp_qem_item if emp_qem_item else "'#LMBB'"
+        
+    if isinstance(qem_val, str) and not qem_val.startswith("'"): qem_val = f"'{qem_val}'"
+    
+    for af in audit_fields:
+        target_cols.append(af)
+        if 'qem' in af:
+            select_vals.append(f"{qem_val} AS {af}")
+        else:
+            select_vals.append(f"now() AS {af}")
+
+    # Chave de distinção
+    distinct_col = spreadsheet_map.get('nome_chave', spreadsheet_map.get('emp_nom_com', ''))
+    razao_social_col = spreadsheet_map.get('emp_nom_com', 'NULL')
+    cnpj_col = spreadsheet_map.get('emp_cpf_cnp', 'NULL')
+    cod_ext_col = spreadsheet_map.get('emp_cod_ext', 'NULL')
+
+    sql = []
+    sql.append(f"-- SCRIPT MIGRACAO: {template['label']}")
+    sql.append(f"-- Tabela Alvo: {template['targetTable']}\n")
+    
+    sql.append(f"INSERT INTO {template['targetTable']} (")
+    sql.append("    " + ", ".join(target_cols))
+    sql.append(")")
+    sql.append(f"SELECT DISTINCT ON ({distinct_col})")
+    sql.append("    " + ",\n    ".join(select_vals))
+    sql.append(f"FROM {staging_table}")
+    sql.append(f"WHERE NOT EXISTS (")
+    sql.append(f"    SELECT 1 FROM {template['targetTable']}")
+    sql.append(f"    WHERE trim(upper(to_ascii({template['targetTable']}.emp_nom_com))) = trim(upper(to_ascii({razao_social_col})))")
+    sql.append(f"      AND {template['targetTable']}.emp_cpf_cnp = {cnpj_col}")
+    sql.append(f"      AND {template['targetTable']}.emp_flg_atv = 1")
+    sql.append(");\n")
+    
+    mig_pk = template['mig_pk_field']
+    pk = template['pk_field']
+    sql.append(f"-- Atualizando controle de migração na staging")
+    sql.append(f"ALTER TABLE {staging_table} ADD COLUMN IF NOT EXISTS {mig_pk} numeric;\n")
+    
+    if cod_ext_col != 'NULL':
+        sql.append(f"UPDATE {staging_table} SET {mig_pk} = {pk}")
+        sql.append(f"FROM {template['targetTable']}")
+        sql.append(f"WHERE {template['targetTable']}.emp_cod_ext = {str(cod_ext_col) if cod_ext_col else 'NULL'}::text AND {mig_pk} IS NULL;")
+    else:
+        sql.append(f"UPDATE {staging_table} SET {mig_pk} = {pk}")
+        sql.append(f"FROM {template['targetTable']}")
+        sql.append(f"WHERE trim(upper(to_ascii({template['targetTable']}.emp_nom_com))) = trim(upper(to_ascii({razao_social_col})))")
+        sql.append(f"  AND {template['targetTable']}.emp_cpf_cnp = {cnpj_col} AND {mig_pk} IS NULL;")
+
+    # --- SQL ADICIONAL: Classificação Operacional (Apenas para Empresas) ---
+    if template_id == 'empresas':
+        tag_audit = global_configs.get('tag_auditoria', "'#LMBB'")
+        if isinstance(tag_audit, str) and not tag_audit.startswith("'"): 
+            tag_audit = f"'{tag_audit}'"
+            
+        sql.append(f"\n-- Script Adicional: Classificação Operacional")
+        sql.append(f"INSERT INTO c_empresa_cls_operacionais(")
+        sql.append(f"    ecl_fky_emp_ide, ecl_fky_cls_ide, ecl_qem, ecl_qdo,")
+        sql.append(f"    ecl_fky_ffi_ide, ecl_qem_inc, ecl_qdo_inc, ecl_flg_atv")
+        sql.append(f")")
+        sql.append(f"SELECT")
+        sql.append(f"    emp_ide, 1, {tag_audit}, now(),")
+        sql.append(f"    CASE WHEN emp_tpo_pes = 'J' THEN 10 ELSE 11 END AS class_fiscal,")
+        sql.append(f"    {tag_audit}, now(), 1")
+        sql.append(f"FROM c_empresas")
+        sql.append(f"WHERE NOT EXISTS (")
+        sql.append(f"    SELECT 1 FROM c_empresa_cls_operacionais")
+        sql.append(f"    WHERE ecl_fky_emp_ide = emp_ide AND ecl_flg_atv = 1")
+        sql.append(f");")
+
+    return "\n".join(sql)
+
+def auto_map_fields(template_id, spreadsheet_columns):
+    """
+    Tenta mapear automaticamente as colunas da planilha para os campos do template
+    baseado em hints e similaridade.
+    """
+    if template_id not in INSERT_TEMPLATES_REGISTRY:
+        return {}
+        
+    template = INSERT_TEMPLATES_REGISTRY[template_id]
+    mapping = {}
+    
+    for f in template['fields']:
+        if f['type'] == 'spreadsheet':
+            mapping[f['name']] = {"column": None, "override": ""}
+        else:
+            mapping[f['name']] = f.get('default', '')
+            
+    for f in template['fields']:
+        if f['type'] == 'spreadsheet':
+            found = False
+            hints = f.get('hints', [])
+            
+            for col in spreadsheet_columns:
+                if col.lower() in [h.lower() for h in hints]:
+                    mapping[f['name']]['column'] = col
+                    found = True
+                    break
+            
+            if found: continue
+            
+            field_search = [f['name'].lower().replace('emp_', '')] + [h.lower() for h in hints]
+            for col in spreadsheet_columns:
+                col_lower = col.lower()
+                if any(s in col_lower for s in field_search):
+                    mapping[f['name']]['column'] = col
+                    break
+                    
+    return mapping
+
 def main():
     if len(sys.argv) > 1:
         file_name = sys.argv[1]

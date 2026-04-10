@@ -14,7 +14,10 @@ from gera_script import (
     clean_col_name,
     load_memory,
     save_memory,
-    fix_dataframe_mojibake
+    fix_dataframe_mojibake,
+    INSERT_TEMPLATES_REGISTRY,
+    generate_insert_sql,
+    auto_map_fields
 )
 
 # Configuração da Página
@@ -40,6 +43,23 @@ if "preview_rows" not in st.session_state:
     st.session_state.preview_rows = 20
 if "reset_counter" not in st.session_state:
     st.session_state.reset_counter = 0
+if "insert_mapping" not in st.session_state:
+    st.session_state.insert_mapping = {}
+if "target_template" not in st.session_state:
+    st.session_state.target_template = None
+if "final_sql" not in st.session_state:
+    st.session_state.final_sql = ""
+if "staging_table_name" not in st.session_state:
+    st.session_state.staging_table_name = ""
+if "insert_table_name" not in st.session_state:
+    st.session_state.insert_table_name = ""
+if "global_configs" not in st.session_state:
+    st.session_state.global_configs = {
+        "mig_prefix": "mig_",
+        "tipo_pessoa": "J",
+        "tag_auditoria": "#LMBB",
+        "sit_ide": "1"
+    }
 
 # --- CUSTOM CSS (JurisData Obsidian v2 - Modern Template Adaptation) ---
 def inject_custom_css():
@@ -222,6 +242,7 @@ def draw_sidebar():
         steps = [
             (":material/cloud_upload:", "Upload", 1),
             (":material/visibility:", "Preview", 3),
+            (":material/account_tree:", "Mapeamento", 5),
             (":material/database:", "Gerar SQL", 4)
         ]
         
@@ -248,8 +269,10 @@ def draw_sidebar():
                 """
                 
             if st.button(label, icon=icon, key=f"nav_{step_num}", use_container_width=True):
-                if step_num in [3, 4] and "df" not in st.session_state:
+                if step_num in [3, 4, 5] and "df" not in st.session_state:
                     st.toast("⚠️ Faça o upload de um arquivo na aba Upload primeiro!")
+                elif step_num == 5 and not st.session_state.target_template:
+                    st.toast("⚠️ Escolha um modelo de INSERT na tela de Preview primeiro!")
                 else:
                     st.session_state.step = step_num
                     st.rerun()
@@ -375,9 +398,13 @@ def sync_df_edits():
         )
 
 def render_breadcrumb(step):
-    # Passos: Upload (1), Preview (3), SQL (4)
-    steps_list = [1, 3, 4]
-    current_idx = steps_list.index(step) + 1
+    # Passos: Upload (1), Preview (3), Mapeamento (5), SQL (4)
+    steps_list = [1, 3, 5, 4]
+    try:
+        current_idx = steps_list.index(step) + 1
+    except ValueError:
+        current_idx = 1
+        
     progress_pct = (current_idx / len(steps_list)) * 100
     
     # Barra de Progresso Minimalista (Stepper Visual)
@@ -387,7 +414,7 @@ def render_breadcrumb(step):
         </div>
     """, unsafe_allow_html=True)
 
-    steps = [("Upload", 1), ("Preview", 3), ("SQL", 4)]
+    steps = [("Upload", 1), ("Preview", 3), ("Mapeamento", 5), ("Gerar SQL", 4)]
     breadcrumb_html = '<div style="display: flex; gap: 12px; align-items: center; margin-bottom: 2rem; font-family: Inter, sans-serif; font-size: 13px; font-weight: 500; color: #64748b;">'
     
     for i, (label, s_num) in enumerate(steps):
@@ -441,6 +468,8 @@ if st.session_state.step == 1:
                         st.session_state.df = df
                         st.session_state.df_original = df.copy() # Backup de Origem
                         st.session_state.table_name = table
+                        st.session_state.staging_table_name = table
+                        st.session_state.insert_table_name = table
                         st.session_state.uploaded_filename = uploaded_file.name
                         st.session_state.final_cols = f_cols
                         st.session_state.staging_sql = generate_staging_sql(df, table, f_cols)
@@ -505,29 +534,207 @@ elif st.session_state.step == 3:
                 on_change=sync_df_edits
             )
             
-            nav_col1, nav_col2, nav_col3 = st.columns([1, 1, 1.5])
-            with nav_col1:
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # --- NOVA BARRA DE AÇÕES DO PREVIEW ---
+            col_actions = st.columns([1, 1, 1.2, 1.8], gap="small")
+            
+            with col_actions[0]:
                 if st.button("⬅ Voltar", use_container_width=True): 
                     st.session_state.step = 1
                     st.rerun()
-            with nav_col2:
-                # Reset Robusto: Volta ao original e muda a key
-                if st.button("Resetar Edições", use_container_width=True):
+            
+            with col_actions[1]:
+                if st.button("Resetar", use_container_width=True, help="Volta a planilha ao estado original do upload"):
                     st.session_state.df = st.session_state.df_original.copy()
                     st.session_state.reset_counter += 1
-                    # Recalcula SQL
                     _, r_cols = process_dataframe_columns(st.session_state.df)
                     st.session_state.final_cols = r_cols
+                    st.session_state.staging_sql = generate_staging_sql(st.session_state.df, st.session_state.table_name, r_cols)
+                    st.rerun()
+            
+            with col_actions[2]:
+                if st.button("Gerar SQL Tabela", use_container_width=True, help="Gera apenas o CREATE TABLE e INSERTS da staging"):
+                    # Ao entrar no fluxo de Staging Puro, garante que o SQL esteja atualizado com o nome correto
+                    _, r_cols = process_dataframe_columns(st.session_state.df)
                     st.session_state.staging_sql = generate_staging_sql(
                         st.session_state.df, 
-                        st.session_state.table_name, 
+                        st.session_state.staging_table_name, 
                         r_cols
                     )
-                    st.rerun()
-            with nav_col3:
-                if st.button("Gerar SQL ➔", type="primary", use_container_width=True): 
+                    st.session_state.target_template = None
                     st.session_state.step = 4
                     st.rerun()
+            
+            with col_actions[3]:
+                # Dropdown de Scripts INSERT
+                template_options = {None: "Selecione o Script INSERT ▾"}
+                for tid, tval in INSERT_TEMPLATES_REGISTRY.items():
+                    template_options[tid] = tval['label']
+                
+                selected_template = st.selectbox(
+                    "Script INSERT",
+                    options=list(template_options.keys()),
+                    format_func=lambda x: template_options[x],
+                    label_visibility="collapsed"
+                )
+                
+                if selected_template:
+                    st.session_state.target_template = selected_template
+                    # Auto-mapeamento inicial
+                    st.session_state.insert_mapping = auto_map_fields(selected_template, st.session_state.df.columns)
+                    st.session_state.step = 5
+                    st.rerun()
+    with col_side:
+        render_info_panel()
+
+# STEP 5: MAPEAMENTO INSERT
+elif st.session_state.step == 5:
+    render_breadcrumb(5)
+    
+    template_id = st.session_state.target_template
+    template = INSERT_TEMPLATES_REGISTRY[template_id]
+    
+    col_main, col_side = st.columns([2.5, 1], gap="large")
+    
+    with col_main:
+        st.markdown(f"""
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 1.5rem;">
+                <div style="background-color: #185FA5; width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                    <span class="material-symbols-outlined" style="color: white; font-size: 24px;">account_tree</span>
+                </div>
+                <div>
+                    <h2 style="font-size: 1.25rem; font-weight: 800; color: #1e293b; margin: 0;">Mapeamento de INSERT — {template['label']}</h2>
+                    <p style="font-size: 13px; color: #64748b; margin: 0;">Configure a origem de cada campo para gerar o script de importação.</p>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        with st.container(border=True):
+            st.markdown('<h4 style="font-size: 0.875rem; font-weight: 700; margin-bottom: 1rem; color: #475569;">MAPEAMENTO DE CAMPOS</h4>', unsafe_allow_html=True)
+            
+            # Cabeçalho da Tabela
+            h_col1, h_col2, h_col3, h_col4 = st.columns([1.5, 1, 2, 0.8])
+            h_col1.markdown("**Campo do INSERT**")
+            h_col2.markdown("**Tipo**")
+            h_col3.markdown("**Origem / Valor**")
+            h_col4.markdown("**Status**")
+            st.markdown("<hr style='margin: 0.5rem 0 1rem 0; opacity: 0.1;'>", unsafe_allow_html=True)
+            
+            mapping = st.session_state.insert_mapping
+            spreadsheet_cols = ["PULAR"] + list(st.session_state.df.columns)
+            
+            for field in template['fields']:
+                f_name = field['name']
+                f_type = field['type']
+                
+                r_col1, r_col2, r_col3, r_col4 = st.columns([1.5, 1, 2, 0.8])
+                
+                # Nome do Campo
+                r_col1.markdown(f"<span style='color: #1e293b; font-size: 14px; font-weight: 500;'>{field['label']}<br><small style='color: #94a3b8;'>{f_name}</small></span>", unsafe_allow_html=True)
+                
+                # Tipo do Campo
+                type_info = {
+                    'fixed': ('build', 'Fixo'),
+                    'spreadsheet': ('description', 'Planilha'),
+                    'configurable': ('settings', 'Configurável')
+                }.get(f_type, ('help', f_type))
+                r_col2.markdown(f"<div style='display: flex; align-items: center; gap: 6px; color: #64748b;'><span class='material-symbols-outlined' style='font-size: 16px;'>{type_info[0]}</span><span style='font-size: 13px;'>{type_info[1]}</span></div>", unsafe_allow_html=True)
+                
+                # Origem / Valor (Widget)
+                if f_type == 'spreadsheet':
+                    m_data = mapping.get(f_name)
+                    # Normalização (converte legado p/ híbrido se necessário)
+                    if not isinstance(m_data, dict):
+                        m_data = {"column": m_data if m_data in spreadsheet_cols else "PULAR", "override": ""}
+                    
+                    c_drop, c_edit = r_col3.columns([1.2, 1], gap="small")
+                    
+                    current_col = m_data.get('column', 'PULAR')
+                    if current_col not in spreadsheet_cols: current_col = "PULAR"
+                    
+                    selected_col = c_drop.selectbox(
+                        f"Col_{f_name}",
+                        options=spreadsheet_cols,
+                        index=spreadsheet_cols.index(current_col),
+                        key=f"field_col_{f_name}",
+                        label_visibility="collapsed"
+                    )
+                    
+                    override_val = c_edit.text_input(
+                        f"Over_{f_name}",
+                        value=m_data.get('override', ''),
+                        placeholder="Sobrescrever...",
+                        key=f"field_over_{f_name}",
+                        label_visibility="collapsed"
+                    )
+                    
+                    mapping[f_name] = {
+                        "column": selected_col if selected_col != "PULAR" else None, 
+                        "override": override_val
+                    }
+                    
+                else:
+                    # 'configurable' ou 'fixed' agora ambos são editáveis via override direto
+                    val = mapping.get(f_name, field.get('default', ''))
+                    # Se vier do formato híbrido por erro, extrai o override
+                    if isinstance(val, dict): val = val.get('override', '')
+                    
+                    new_val = r_col3.text_input(
+                        f"Valor para {f_name}",
+                        value=val,
+                        key=f"field_{f_name}",
+                        label_visibility="collapsed"
+                    )
+                    mapping[f_name] = new_val
+                
+                # Status
+                if f_type == 'fixed':
+                    r_col4.markdown("<div style='display: flex; align-items: center; gap: 4px; color: #94a3b8;'><span class='material-symbols-outlined' style='font-size: 18px;'>lock</span><span style='font-size: 12px;'>Fixo</span></div>", unsafe_allow_html=True)
+                elif f_type == 'spreadsheet':
+                    if mapping.get(f_name):
+                        r_col4.markdown("<div style='display: flex; align-items: center; gap: 4px; color: #059669;'><span class='material-symbols-outlined' style='font-size: 18px;'>check_circle</span><span style='font-size: 12px;'>Mapeado</span></div>", unsafe_allow_html=True)
+                    elif field.get('required'):
+                        r_col4.markdown("<div style='display: flex; align-items: center; gap: 4px; color: #e11d48;'><span class='material-symbols-outlined' style='font-size: 18px;'>warning</span><span style='font-size: 12px;'>Obrigatório</span></div>", unsafe_allow_html=True)
+                    else:
+                        r_col4.markdown("<div style='display: flex; align-items: center; gap: 4px; color: #94a3b8;'><span class='material-symbols-outlined' style='font-size: 18px;'>radio_button_unchecked</span><span style='font-size: 12px;'>Opcional</span></div>", unsafe_allow_html=True)
+                else:
+                    r_col4.markdown("<div style='display: flex; align-items: center; gap: 4px; color: #059669;'><span class='material-symbols-outlined' style='font-size: 18px;'>check_circle</span><span style='font-size: 12px;'>Pronto</span></div>", unsafe_allow_html=True)
+
+                st.markdown("<hr style='margin: 0.5rem 0; opacity: 0.05;'>", unsafe_allow_html=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # Bottom Buttons
+            b_col1, b_col2, b_col3, b_col4 = st.columns([1, 1, 1, 1])
+            with b_col1:
+                if st.button("⬅ Voltar", use_container_width=True):
+                    st.session_state.step = 3
+                    st.rerun()
+            with b_col2:
+                if st.button("Auto-mapear", use_container_width=True, icon=":material/magic_button:"):
+                    st.session_state.insert_mapping = auto_map_fields(template_id, st.session_state.df.columns)
+                    st.rerun()
+            with b_col3:
+                if st.button("Salvar JSON", use_container_width=True, icon=":material/save:"):
+                    st.toast("Mapeamento salvo com sucesso!")
+            with b_col4:
+                if st.button("Confirmar →", type="primary", use_container_width=True):
+                    # Validação
+                    missing = [f['label'] for f in template['fields'] if f.get('required') and f['type'] == 'spreadsheet' and not mapping.get(f['name'])]
+                    if missing:
+                        st.error(f"Campos obrigatórios não mapeados: {', '.join(missing)}")
+                    else:
+                        # Gera o SQL Final usando o nome da tabela do fluxo INSERT
+                        st.session_state.final_sql = generate_insert_sql(
+                            template_id, 
+                            mapping, 
+                            st.session_state.global_configs,
+                            st.session_state.insert_table_name
+                        )
+                        st.session_state.step = 4
+                        st.rerun()
+
     with col_side:
         render_info_panel()
 
@@ -538,11 +745,27 @@ elif st.session_state.step == 4:
     col_main, col_side = st.columns([2.5, 1], gap="large")
     with col_main:
         with st.container(border=True):
-            new_table = st.text_input("Renomear Tabela de Staging", value=st.session_state.table_name)
-            if new_table != st.session_state.table_name:
-                st.session_state.table_name = new_table
-                st.session_state.staging_sql = generate_staging_sql(st.session_state.df, new_table, st.session_state.final_cols)
-                st.rerun()
+            # Lógica de Renomeação Isolada por Contexto
+            if st.session_state.target_template:
+                # Fluxo de Mapeamento INSERT
+                new_table = st.text_input("Renomear Tabela de Staging (INSERT)", value=st.session_state.insert_table_name)
+                if new_table != st.session_state.insert_table_name:
+                    st.session_state.insert_table_name = new_table
+                    st.session_state.final_sql = generate_insert_sql(
+                        st.session_state.target_template, 
+                        st.session_state.insert_mapping, 
+                        st.session_state.global_configs,
+                        new_table
+                    )
+                    st.rerun()
+            else:
+                # Fluxo de Staging Puro (Tabela)
+                new_table = st.text_input("Renomear Tabela de Staging (Tabela)", value=st.session_state.staging_table_name)
+                if new_table != st.session_state.staging_table_name:
+                    st.session_state.staging_table_name = new_table
+                    _, r_cols = process_dataframe_columns(st.session_state.df)
+                    st.session_state.staging_sql = generate_staging_sql(st.session_state.df, new_table, r_cols)
+                    st.rerun()
             
             st.markdown('<h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 1rem;">Preview do SQL</h3>', unsafe_allow_html=True)
             
@@ -576,7 +799,7 @@ elif st.session_state.step == 4:
                         <button class="copy-btn" onclick="copyText()">
                             <span class="material-symbols-outlined" id="icon">content_copy</span>
                         </button>
-                        <textarea id="sql" class="editor" readonly>{st.session_state.staging_sql}</textarea>
+                        <textarea id="sql" class="editor" readonly>{st.session_state.final_sql if st.session_state.final_sql else st.session_state.staging_sql}</textarea>
                     </div>
                     <script>
                         function copyText() {{
@@ -606,7 +829,8 @@ elif st.session_state.step == 4:
             with col_d2:
                 if st.button("Salvar Script SQL", use_container_width=True, type="primary", icon=":material/save:"):
                     default_name = f"script_{st.session_state.table_name}.sql"
-                    caminho = save_file_native(st.session_state.staging_sql, default_name)
+                    sql_content = st.session_state.final_sql if st.session_state.final_sql else st.session_state.staging_sql
+                    caminho = save_file_native(sql_content, default_name)
                     if caminho:
                         st.success(f"✅ Arquivo salvo com sucesso em:\n{caminho}")
 
