@@ -329,9 +329,8 @@ INSERT_TEMPLATES_REGISTRY = {
             {'name': 'emp_nom_com', 'label': 'Nome/Razão Social', 'type': 'spreadsheet', 'required': True, 'hints': ['razao_social', 'nome', 'empresa', 'cliente']},
             {'name': 'emp_cpf_cnp', 'label': 'CPF/CNPJ', 'type': 'spreadsheet', 'required': True, 'hints': ['cnpj', 'cpf', 'cnpj_cpf', 'cpf_cgc']},
             {'name': 'emp_cod_ext', 'label': 'Código Externo', 'type': 'spreadsheet', 'required': False, 'hints': ['codigo_externo', 'cod_ext', 'id_externo']},
-            {'name': 'nome_chave', 'label': 'Coluna Chave (Apelido/Busca)', 'type': 'spreadsheet', 'required': True, 'hints': ['apelido', 'nome_fantasia', 'razao_social']},
             
-            {'name': 'emp_tpo_pes', 'label': 'Tipo Pessoa (J/F)', 'type': 'configurable', 'default': 'J', 'required': True},
+            {'name': 'emp_tpo_pes', 'label': 'Tipo Pessoa (J/F)', 'type': 'spreadsheet', 'required': True, 'hints': ['tipo', 'tipo_pessoa', 'tpo_pes', 'fisica_juridica', 'pf_pj']},
             {'name': 'emp_qem', 'label': 'Tag Auditoria', 'type': 'configurable', 'default': '#LMBB', 'required': True},
             {'name': 'emp_fky_sit_ide', 'label': 'Filial', 'type': 'configurable', 'default': '1', 'required': True},
             
@@ -371,8 +370,6 @@ def generate_insert_sql(template_id, mapping_data, global_configs, staging_table
     for f in fields_def:
         fname = f['name']
         ftype = f['type']
-        
-        if fname == 'nome_chave': continue
         
         target_cols.append(fname)
         m_item = mapping_data.get(fname)
@@ -437,7 +434,7 @@ def generate_insert_sql(template_id, mapping_data, global_configs, staging_table
             select_vals.append(f"now() AS {af}")
 
     # Chave de distinção
-    distinct_col = spreadsheet_map.get('nome_chave', spreadsheet_map.get('emp_nom_com', ''))
+    distinct_col = spreadsheet_map.get('emp_ape', spreadsheet_map.get('emp_nom_com', ''))
     razao_social_col = spreadsheet_map.get('emp_nom_com', 'NULL')
     cnpj_col = spreadsheet_map.get('emp_cpf_cnp', 'NULL')
     cod_ext_col = spreadsheet_map.get('emp_cod_ext', 'NULL')
