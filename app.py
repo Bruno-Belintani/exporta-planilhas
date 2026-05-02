@@ -358,24 +358,36 @@ def sync_header_edits():
     key = f"col_editor_{st.session_state.reset_counter}"
     if key in st.session_state:
         changes = st.session_state[key]
-        # Pegamos o DataFrame original de colunas que passamos para o editor
-        current_cols = list(st.session_state.df.columns)
-        
-        # Aplicamos apenas as edições feitas no 'edited_rows'
         edited = changes.get("edited_rows", {})
+        
         for idx, val in edited.items():
-            if "Original" in val:
-                current_cols[idx] = val["Original"]
+            new_name = val.get("Nome P/ Banco (SQL)")
+            if new_name is not None:
+                # Forçamos a limpeza novamente para evitar nomes inválidos no banco
+                safe_name = clean_col_name(new_name)
+                st.session_state.cols_mapping.at[int(idx), "Nome P/ Banco (SQL)"] = safe_name
                 
-        # Atualizamos o DataFrame principal com os novos cabeçalhos
-        st.session_state.df.columns = current_cols
-        # Recalcula colunas finais e SQL
-        _, nf_cols = process_dataframe_columns(st.session_state.df)
-        st.session_state.final_cols = nf_cols
+        # Garante que os nomes sejam únicos
+        new_cols = st.session_state.cols_mapping["Nome P/ Banco (SQL)"].tolist()
+        seen = {}
+        final_cols = []
+        for c in new_cols:
+            if not c: c = "coluna"
+            if c in seen:
+                seen[c] += 1
+                final_cols.append(f"{c}_{seen[c]}")
+            else:
+                seen[c] = 0
+                final_cols.append(c)
+                
+        st.session_state.cols_mapping["Nome P/ Banco (SQL)"] = final_cols
+        st.session_state.df.columns = final_cols
+        st.session_state.final_cols = final_cols
+        
         st.session_state.staging_sql = generate_staging_sql(
             st.session_state.df, 
             st.session_state.table_name, 
-            nf_cols
+            final_cols
         )
 
 def sync_df_edits():
@@ -388,7 +400,7 @@ def sync_df_edits():
         # Aplicamos cada mudança capturada pelo widget ao Session State de forma direta
         for row_idx, cols in edited.items():
             for col_name, val in cols.items():
-                st.session_state.df.iloc[row_idx, st.session_state.df.columns.get_loc(col_name)] = val
+                st.session_state.df.iloc[int(row_idx), st.session_state.df.columns.get_loc(col_name)] = val
         
         # Recalcula o SQL com os novos dados editados
         st.session_state.staging_sql = generate_staging_sql(
@@ -463,7 +475,7 @@ if st.session_state.step == 1:
                         
                         base = os.path.splitext(uploaded_file.name)[0]
                         table = clean_col_name(base)
-                        _, f_cols = process_dataframe_columns(df)
+                        orig_cols, f_cols = process_dataframe_columns(df)
                         
                         st.session_state.df = df
                         st.session_state.df_original = df.copy() # Backup de Origem
@@ -472,6 +484,12 @@ if st.session_state.step == 1:
                         st.session_state.insert_table_name = table
                         st.session_state.uploaded_filename = uploaded_file.name
                         st.session_state.final_cols = f_cols
+                        
+                        st.session_state.cols_mapping = pd.DataFrame({
+                            "Original (Planilha)": orig_cols,
+                            "Nome P/ Banco (SQL)": f_cols
+                        })
+                        
                         st.session_state.staging_sql = generate_staging_sql(df, table, f_cols)
                         st.session_state.final_sql = "" # Limpa SQL anterior
                         st.session_state.target_template = None # Limpa template anterior
@@ -512,17 +530,21 @@ elif st.session_state.step == 3:
         with st.container(border=True):
             # NOVO: Ferramenta de Mapeamento de Cabeçalhos
             with st.expander("Mapear Cabeçalhos (Renomear Colunas)", expanded=False):
-                st.markdown("<p style='font-size: 13px; color: #64748b;'>Edite os nomes para renomear os cabeçalhos da planilha.</p>", unsafe_allow_html=True)
-                cols_mapping = pd.DataFrame({
-                    "Original": st.session_state.df.columns
-                })
+                st.markdown("""
+                <div style='font-size: 13px; color: #64748b; margin-bottom: 8px;'>
+                    Edite a coluna <b>'Nome P/ Banco (SQL)'</b> para renomear. 
+                    <br><i>Nota: O sistema ajusta automaticamente os nomes para evitar erros no banco de dados (ex: adiciona 'c_' se começar com número).</i>
+                </div>
+                """, unsafe_allow_html=True)
+                
                 # Usar callback para evitar conflito de estado
                 st.data_editor(
-                    cols_mapping, 
+                    st.session_state.cols_mapping, 
                     use_container_width=True, 
                     hide_index=True,
                     key=f"col_editor_{st.session_state.reset_counter}",
-                    on_change=sync_header_edits
+                    on_change=sync_header_edits,
+                    disabled=["Original (Planilha)"]
                 )
 
             st.markdown("<br>", unsafe_allow_html=True)
@@ -550,8 +572,12 @@ elif st.session_state.step == 3:
                 if st.button("Resetar", use_container_width=True, help="Volta a planilha ao estado original do upload"):
                     st.session_state.df = st.session_state.df_original.copy()
                     st.session_state.reset_counter += 1
-                    _, r_cols = process_dataframe_columns(st.session_state.df)
+                    orig_cols, r_cols = process_dataframe_columns(st.session_state.df)
                     st.session_state.final_cols = r_cols
+                    st.session_state.cols_mapping = pd.DataFrame({
+                        "Original (Planilha)": orig_cols,
+                        "Nome P/ Banco (SQL)": r_cols
+                    })
                     st.session_state.staging_sql = generate_staging_sql(st.session_state.df, st.session_state.table_name, r_cols)
                     st.session_state.final_sql = "" # Limpa SQL gerado
                     st.session_state.target_template = None # Limpa template selecionado
