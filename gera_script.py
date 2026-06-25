@@ -590,7 +590,7 @@ def main():
     
     staging_sql_content = generate_staging_sql(df, table_name, final_cols)
     
-    with open(output_file, 'w', encoding='latin-1', errors='replace') as f:
+    with open(output_file, 'w', encoding='utf-8') as f:
         f.write(staging_sql_content)
         
     print(f"[OK] Script de Staging gerado com sucesso em '{output_file}'!")
@@ -640,7 +640,7 @@ def main():
     if mapeamento_validado:
         print("\nGerando script final dinâmico em PL/pgSQL (Lookup + Insert)...")
         final_sql_content = generate_final_sql(mapeamento_validado, table_name)
-        with open(output_final, 'w', encoding='latin-1', errors='replace') as f:
+        with open(output_final, 'w', encoding='utf-8') as f:
             f.write(final_sql_content)
         print(f"[OK] Script dinâmico em lote gerado com sucesso em '{output_final}'!")
     else:
