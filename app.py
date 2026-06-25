@@ -344,7 +344,7 @@ def save_file_native(content, default_filename):
         
         if file_path:
             # Gravamos o arquivo diretamente no disco
-            with open(file_path, "w", encoding="latin-1") as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
             return file_path
     except Exception as e:
@@ -800,6 +800,16 @@ elif st.session_state.step == 4:
             
             st.markdown('<h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 1rem;">Preview do SQL</h3>', unsafe_allow_html=True)
             
+            sql_preview = st.session_state.final_sql if st.session_state.final_sql else st.session_state.staging_sql
+            max_preview_len = 100000
+            is_truncated = len(sql_preview) > max_preview_len
+            
+            if is_truncated:
+                preview_text = sql_preview[:max_preview_len] + "\n\n-- ... [TRUNCADO PARA MELHORAR O DESEMPENHO NO NAVEGADOR] ...\n-- O arquivo de script SQL completo é muito grande para visualização na tela.\n-- Por favor, utilize o botão abaixo 'Salvar Script SQL' para obter o script completo."
+                st.warning("⚠️ O script gerado é muito grande para ser visualizado completamente na tela. A visualização abaixo foi limitada para evitar o travamento do navegador (Out of Memory), mas você pode salvar o arquivo completo utilizando o botão 'Salvar Script SQL' abaixo.")
+            else:
+                preview_text = sql_preview
+            
             # Editor com Cópia Via Iframe Seguro (st.components.v1.html)
             code_html = f"""
             <html>
@@ -830,7 +840,7 @@ elif st.session_state.step == 4:
                         <button class="copy-btn" onclick="copyText()">
                             <span class="material-symbols-outlined" id="icon">content_copy</span>
                         </button>
-                        <textarea id="sql" class="editor" readonly>{st.session_state.final_sql if st.session_state.final_sql else st.session_state.staging_sql}</textarea>
+                        <textarea id="sql" class="editor" readonly>{preview_text}</textarea>
                     </div>
                     <script>
                         function copyText() {{
