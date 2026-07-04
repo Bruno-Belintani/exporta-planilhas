@@ -96,6 +96,13 @@ def format_value(val):
     if isinstance(val, (int, float, np.integer, np.floating)):
         if math.isnan(val) or math.isinf(val):
             return 'NULL'
+        # Se for float e for um valor equivalente a inteiro, remove o .0
+        try:
+            fval = float(val)
+            if fval.is_integer():
+                return str(int(fval))
+        except (ValueError, TypeError, OverflowError):
+            pass
         return str(val)
     if isinstance(val, pd.Timestamp) or isinstance(val, datetime):
         return f"'{val.strftime('%Y-%m-%d %H:%M:%S')}'"
